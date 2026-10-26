@@ -16,6 +16,9 @@ public enum Converter {
         var out: [String] = []
         var i = 0
         var inList = false
+        // A paragraph that failed the JSON check isn't retried from each of
+        // its later lines, which would be quadratic.
+        var jsonCheckedThrough = -1
 
         func emitBlock(_ body: [String], lang: String) {
             if let last = out.last, !last.isEmpty { out.append("") }
@@ -83,7 +86,7 @@ public enum Converter {
                 continue
             }
 
-            if line.hasPrefix("{") || line.hasPrefix("[") {
+            if i > jsonCheckedThrough, line.hasPrefix("{") || line.hasPrefix("[") {
                 var j = i
                 var body: [String] = []
                 while j < lines.count, !lines[j].isEmpty { body.append(lines[j]); j += 1 }
@@ -93,6 +96,7 @@ public enum Converter {
                     i = j
                     continue
                 }
+                jsonCheckedThrough = j
             }
 
             // Indented runs outside a list are code.
@@ -242,7 +246,7 @@ public enum Converter {
 
     /// Spans that must not be rewritten: existing code spans (any number of
     /// backticks), Markdown links and images (label and target), and URLs.
-    static let protected = Pattern(#"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)|\bhttps?://(?:[^\s<>()]|\([^\s<>()]{0,256}\))+(?<=[^\s<>().,;:!?'"]|\))"#)
+    static let protected = Pattern(#"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)|\bhttps?://(?:[^\s<>()]|\([^\s<>()]{0,256}\))+(?<=[^\s<>().,;:!?'"*]|\))"#)
 
     /// Ranges of Markdown links and images, `[label](target)` and
     /// `![alt](target)`. Scanned rather than matched, because a target can
@@ -252,31 +256,37 @@ public enum Converter {
     static func linkRanges(_ ns: NSString) -> [NSRange] {
         let (open, close, bang, lparen, rparen, backslash, newline): (unichar, unichar, unichar, unichar, unichar, unichar, unichar) =
             (91, 93, 33, 40, 41, 92, 10)
+        // Pair brackets once with a stack, so labels can nest (`[a [b]](x)`)
+        // and the scan stays linear however many brackets there are.
+        var match: [Int: Int] = [:]
+        var stack: [Int] = []
+        var k = 0
+        while k < ns.length {
+            let c = ns.character(at: k)
+            if c == backslash { k += 2; continue }
+            if c == newline { stack.removeAll() } else if c == open { stack.append(k) } else if c == close, let p = stack.popLast() { match[p] = k }
+            k += 1
+        }
+
         var ranges: [NSRange] = []
-        var i = 0
-        while i < ns.length {
-            guard ns.character(at: i) == open else { i += 1; continue }
-            let start = i > 0 && ns.character(at: i - 1) == bang ? i - 1 : i
-            // Labels and targets are bounded so a run of unclosed links stays
-            // linear instead of rescanning the line from every bracket.
-            var j = i + 1
-            while j < ns.length, j - i <= maxLinkPart, ns.character(at: j) != close,
-                  ns.character(at: j) != newline, ns.character(at: j) != open { j += 1 }
-            guard j + 1 < ns.length, ns.character(at: j) == close, ns.character(at: j + 1) == lparen else { i = j; continue }
-            var k = j + 2, depth = 1
-            while k < ns.length, depth > 0, k - j <= maxLinkPart {
-                let c = ns.character(at: k)
+        var covered = 0
+        for i in match.keys.sorted() where i >= covered {
+            let j = match[i]!
+            guard j - i <= maxLinkPart, j + 1 < ns.length, ns.character(at: j + 1) == lparen else { continue }
+            // Targets can nest and escape parentheses; bounded so runs of
+            // unclosed links stay linear.
+            var t = j + 2, depth = 1
+            while t < ns.length, depth > 0, t - j <= maxLinkPart {
+                let c = ns.character(at: t)
                 if c == newline { break }
-                if c == backslash { k += 2; continue }
+                if c == backslash { t += 2; continue }
                 if c == lparen { depth += 1 } else if c == rparen { depth -= 1 }
-                k += 1
+                t += 1
             }
-            if depth == 0 {
-                ranges.append(NSRange(location: start, length: k - start))
-                i = k
-            } else {
-                i = j + 1
-            }
+            guard depth == 0 else { continue }
+            let start = i > 0 && ns.character(at: i - 1) == bang ? i - 1 : i
+            ranges.append(NSRange(location: start, length: t - start))
+            covered = t
         }
         return ranges
     }

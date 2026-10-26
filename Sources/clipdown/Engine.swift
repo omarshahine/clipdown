@@ -165,7 +165,10 @@ final class ClipboardEngine: ObservableObject {
         // afterwards, so a copy landing right after still gets processed.
         lastChangeCount = pasteboard.clearContents()
         guard pasteboard.writeObjects([item]) else {
-            log.error("couldn't write the converted clip to the pasteboard")
+            // The clipboard is already cleared; put the original text back.
+            log.error("couldn't write the converted clip to the pasteboard; restoring the original")
+            pasteboard.setString(original, forType: .string)
+            lastChangeCount = pasteboard.changeCount
             return false
         }
         return true

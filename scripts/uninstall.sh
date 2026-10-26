@@ -13,7 +13,11 @@ pgrep -f "ClipDown.app/Contents/MacOS/clipdown" | while read -r pid; do kill "$p
 launchctl bootout "gui/$(id -u)/$ID" 2>/dev/null || true
 
 for f in "$APP" "$HOME/Library/LaunchAgents/$ID.plist"; do
-    [ -e "$f" ] && trash "$f"
+    if [ -e "$f" ]; then trash "$f"; fi
 done
-[ -L "$HOME/.local/bin/clipdown" ] && trash "$HOME/.local/bin/clipdown"
+# Only remove the CLI link if it's ClipDown's.
+LINK="$HOME/.local/bin/clipdown"
+if [ -L "$LINK" ] && [[ "$(readlink "$LINK")" == *"/ClipDown.app/"* ]]; then
+    trash "$LINK"
+fi
 echo "ClipDown removed"

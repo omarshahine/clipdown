@@ -113,6 +113,10 @@ struct AddAppMenu: View {
                       !suggestions.contains(where: { $0.bundleID == id }) else { return nil }
                 return TargetApp(bundleID: id, name: app.localizedName ?? id, format: .richText)
             }
+            // Two running copies of one app share a bundle ID; list it once.
+            .reduce(into: [TargetApp]()) { list, app in
+                if !list.contains(where: { $0.bundleID == app.bundleID }) { list.append(app) }
+            }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         Menu {
@@ -137,7 +141,10 @@ struct AddAppMenu: View {
     }
 
     private func add(_ app: TargetApp) {
-        engine.update { $0.targets.append(app) }
+        engine.update { settings in
+            guard !settings.targets.contains(where: { $0.bundleID == app.bundleID }) else { return }
+            settings.targets.append(app)
+        }
     }
 
     private func choose() {

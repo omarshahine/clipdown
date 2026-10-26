@@ -28,7 +28,8 @@ import Testing
         - c
         1. d
         """
-        #expect(Renderer.html(md) == "<ul><li>a<ul><li>b<br>more</li></ul></li><li>c</li></ul><ol><li>d</li></ol>")
+        // "more" is indented less than the child's text, so it continues "a".
+        #expect(Renderer.html(md) == "<ul><li>a<ul><li>b</li></ul><br>more</li><li>c</li></ul><ol><li>d</li></ol>")
     }
 
     @Test func listSurvivesBlankLineBetweenItems() {
@@ -144,5 +145,33 @@ import Testing
         #expect(Renderer.html("See \(url).") == "<p>See <a href=\"\(url)\">\(url)</a>.</p>")
         #expect(Renderer.html("[w](\(url))") == "<p><a href=\"\(url)\">w</a></p>")
         #expect(Converter.convert("See \(url) and --flag").markdown == "See \(url) and `--flag`")
+    }
+}
+
+@Suite struct ThirdPassRegressions {
+    @Test func escapedFinalPipeStaysInTheCell() {
+        #expect(Renderer.html("| a | b |\n|---|---|\n| c | x\\|")
+            == "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>c</td><td>x|</td></tr></tbody></table>")
+    }
+
+    @Test func nestedLabelsProtectTheirTarget() {
+        #expect(Converter.convert("Read [config [v1]](settings.json) and --verbose").markdown
+            == "Read [config [v1]](settings.json) and `--verbose`")
+    }
+
+    @Test func continuationReturnsToTheParentItem() {
+        #expect(Renderer.html("- parent\n  - child\n  parent continuation")
+            == "<ul><li>parent<ul><li>child</li></ul><br>parent continuation</li></ul>")
+    }
+
+    @Test func urlsLeaveClosingEmphasisAlone() {
+        #expect(Renderer.html("**https://example.com**")
+            == "<p><strong><a href=\"https://example.com\">https://example.com</a></strong></p>")
+    }
+
+    @Test func failedJSONParagraphsAreNotRescanned() {
+        let start = Date()
+        _ = Converter.convert(String(repeating: "[\n", count: 20_000))
+        #expect(Date().timeIntervalSince(start) < 5)
     }
 }

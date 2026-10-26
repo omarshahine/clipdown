@@ -116,6 +116,8 @@ public enum Renderer {
 
             // Indented text under a list item continues that item.
             if !lists.isEmpty, line.hasPrefix(" ") {
+                // It belongs to the deepest item indented less than it.
+                closeLists(above: Converter.leadingSpaces(line) - 1)
                 out += "<br>" + inline(trimmed)
                 i += 1
                 continue
@@ -171,7 +173,8 @@ public enum Renderer {
     static func cells(_ row: String) -> [String] {
         var t = row.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("|") { t.removeFirst() }
-        if t.hasSuffix("|") { t.removeLast() }
+        // A trailing pipe is a border unless it's escaped (`x\|`).
+        if t.hasSuffix("|"), !t.hasSuffix("\\|") { t.removeLast() }
         // Split on unescaped pipes only; `\|` is a literal pipe inside a cell.
         var cells = [""]
         var escaped = false
@@ -208,7 +211,7 @@ public enum Renderer {
     static let link = Pattern("\\[([^\\[\\]\\n]{1,1024})\\]\\((https?://(?:[^()\\s\u{E000}\u{E001}]|\\([^()\\s\u{E000}\u{E001}]{0,256}\\)){1,2048})\\)")
     /// A URL may contain one level of balanced parentheses, as Wikipedia
     /// links do, but never ends on unbalanced punctuation.
-    static let bareURL = Pattern("\\bhttps?://(?:[^\\s<>()\u{E000}\u{E001}]|\\([^\\s<>()\u{E000}\u{E001}]{0,256}\\))+(?<=[^\\s<>().,;:!?'\"\u{E000}\u{E001}]|\\))")
+    static let bareURL = Pattern("\\bhttps?://(?:[^\\s<>()\u{E000}\u{E001}]|\\([^\\s<>()\u{E000}\u{E001}]{0,256}\\))+(?<=[^\\s<>().,;:!?'\"*\u{E000}\u{E001}]|\\))")
     static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
     static let italic = Pattern(#"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#)
 

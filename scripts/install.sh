@@ -23,7 +23,9 @@ STAGE_DIR=.build/stage
 STAGE=$STAGE_DIR/ClipDown.app
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$BIN" "$STAGE/Contents/MacOS/clipdown"
-for f in Resources/MenuBarIcon*.png; do [ -e "$f" ] && cp "$f" "$STAGE/Contents/Resources/"; done
+for f in Resources/MenuBarIcon*.png; do
+    if [ -e "$f" ]; then cp "$f" "$STAGE/Contents/Resources/"; fi
+done
 
 ICON_KEYS=""
 if [ -d Resources/ClipDown.icon ]; then
@@ -75,12 +77,17 @@ if [ -e "$LEGACY" ]; then
     trash "$LEGACY"
 fi
 
-# Put the CLI on PATH when ~/.local/bin is there.
+# Put the CLI on PATH when ~/.local/bin is there, without clobbering a
+# different clipdown that's already there.
+LINK="$HOME/.local/bin/clipdown"
+CLI="$APP/Contents/MacOS/clipdown"
 if [ -d "$HOME/.local/bin" ]; then
-    ln -sf "$APP/Contents/MacOS/clipdown" "$HOME/.local/bin/clipdown"
-    CLI="clipdown"
-else
-    CLI="$APP/Contents/MacOS/clipdown"
+    if [ ! -e "$LINK" ] && [ ! -L "$LINK" ] || [[ "$(readlink "$LINK" 2>/dev/null)" == *"/ClipDown.app/"* ]]; then
+        ln -sfn "$APP/Contents/MacOS/clipdown" "$LINK"
+        CLI="clipdown"
+    else
+        echo "Left $LINK alone: it isn't ClipDown's."
+    fi
 fi
 
 open "$APP"
