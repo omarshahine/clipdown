@@ -3,16 +3,53 @@ import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct SettingsView: View {
-    @AppStorage("settingsTab") private var tab = "apps"
+/// The Settings window's tabs, as the standard macOS toolbar: icons in the
+/// title bar, with the window titled after the selected tab.
+final class SettingsTabs: NSTabViewController {
+    static let tabKey = "settingsTab"
+    /// The controller selects its first tab on its own before appearing;
+    /// only save selections made after that.
+    private var ready = false
 
-    var body: some View {
-        TabView(selection: $tab) {
-            AppsTab().tabItem { Label("Apps", systemImage: "square.grid.2x2") }.tag("apps")
-            PreviewTab().tabItem { Label("Preview", systemImage: "eye") }.tag("preview")
-            GeneralTab().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+    init(engine: ClipboardEngine, updates: Updates) {
+        super.init(nibName: nil, bundle: nil)
+        tabStyle = .toolbar
+        func tab(_ id: String, _ label: String, _ symbol: String, _ view: some View) {
+            let host = NSHostingController(rootView: view
+                .frame(width: 620)
+                .environmentObject(engine)
+                .environmentObject(updates))
+            host.sizingOptions = .preferredContentSize
+            // The window takes its title from the selected tab's controller.
+            host.title = label
+            let item = NSTabViewItem(viewController: host)
+            item.identifier = id
+            item.label = label
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            addTabViewItem(item)
         }
-        .frame(width: 620, height: 480)
+        tab("apps", "Apps", "square.grid.2x2", AppsTab().frame(height: 480))
+        tab("preview", "Preview", "eye", PreviewTab().frame(height: 480))
+        tab("general", "General", "gearshape", GeneralTab())
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        selectSavedTab()
+        ready = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Shows the tab last used, or the one the star ask asked for.
+    func selectSavedTab() {
+        let id = UserDefaults.standard.string(forKey: Self.tabKey)
+        selectedTabViewItemIndex = tabViewItems.firstIndex { $0.identifier as? String == id } ?? 0
+    }
+
+    override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: item)
+        if ready, let id = item?.identifier as? String { UserDefaults.standard.set(id, forKey: Self.tabKey) }
     }
 }
 
@@ -328,6 +365,7 @@ struct GeneralTab: View {
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var loginNote: String?
     @AppStorage(StarAsk.pendingKey) private var starAskPending = false
+    @ObservedObject private var stars = StarAsk.shared
 
     var body: some View {
         Form {
@@ -362,7 +400,7 @@ struct GeneralTab: View {
                 }
             }
             Section("Privacy") {
-                Text("Your clipboard never leaves your Mac. ClipDown reads it only while an app in your list is in front, and only when the clip is plain text. The only network request is the update check, which fetches a release feed from GitHub.")
+                Text("Your clipboard never leaves your Mac. ClipDown reads it only while an app in your list is in front, and only when the clip is plain text. The only network requests are the update check, which fetches a release feed from GitHub, and starring ClipDown, which goes through your GitHub CLI if you use it.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -371,15 +409,25 @@ struct GeneralTab: View {
                 HStack {
                     Link("ClipDown on GitHub", destination: StarAsk.url)
                     Spacer()
-                    Button("Star on GitHub", systemImage: "star", action: StarAsk.star)
+                    if stars.starred {
+                        Label("Starred", systemImage: "star.fill").foregroundStyle(.secondary)
+                    } else {
+                        Button("Star on GitHub", systemImage: "star") { stars.star() }
+                    }
                 }
             }
         }
         .formStyle(.grouped)
+        // Room for the star note on top, without pushing Version out of view.
+        .frame(height: starAskPending ? 600 : 480)
         .onAppear(perform: refreshLoginItem)
-        // Coming back from System Settings, where approval happens.
+        .task { await stars.refresh() }
+        // Coming back from System Settings, where approval happens, or a
+        // browser.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshLoginItem()
+            // A star added or removed on github.com meanwhile.
+            Task { await stars.refresh() }
         }
     }
 
@@ -410,7 +458,7 @@ struct StarAskNote: View {
                 Text("Hey, I'm Omar, and I'm the developer of ClipDown. If you love this app, please consider starring it on GitHub. I'll only ever ask this once.")
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Star on GitHub", systemImage: "star.fill", action: StarAsk.star)
+                    Button("Star on GitHub", systemImage: "star.fill") { StarAsk.shared.star() }
                         .buttonStyle(.borderedProminent)
                     Button("No Thanks", action: dismiss)
                 }
