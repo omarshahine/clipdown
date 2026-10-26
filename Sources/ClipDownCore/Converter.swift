@@ -209,7 +209,7 @@ public enum Converter {
         guard words.count > 1 || line.count <= 20 else { return nil }
         // Prose that happens to start with a command word reads like a sentence.
         if line.hasSuffix(".") && !line.hasSuffix(" .") { return nil }
-        if Pattern(#"[a-z]{2,}[.!?] [A-Z]"#).matches(line) { return nil }
+        if sentenceBreak.matches(line) { return nil }
         let codeish = line.contains { "-/|=~$\"'<>{}[]".contains($0) }
         guard codeish || words.count <= 3 else { return nil }
         return "bash"
@@ -238,7 +238,44 @@ public enum Converter {
 
     /// Spans that must not be rewritten: existing code spans (any number of
     /// backticks), Markdown links and images (label and target), and URLs.
-    static let protected = Pattern(#"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)|!?\[[^\]\n]*\]\((?:[^()\\\n]|\\.|\([^()\n]*\))*\)|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+    static let protected = Pattern(#"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+
+    /// Ranges of Markdown links and images, `[label](target)` and
+    /// `![alt](target)`. Scanned rather than matched, because a target can
+    /// nest parentheses to any depth (and escape them).
+    static let maxLinkPart = 512
+
+    static func linkRanges(_ ns: NSString) -> [NSRange] {
+        let (open, close, bang, lparen, rparen, backslash, newline): (unichar, unichar, unichar, unichar, unichar, unichar, unichar) =
+            (91, 93, 33, 40, 41, 92, 10)
+        var ranges: [NSRange] = []
+        var i = 0
+        while i < ns.length {
+            guard ns.character(at: i) == open else { i += 1; continue }
+            let start = i > 0 && ns.character(at: i - 1) == bang ? i - 1 : i
+            // Labels and targets are bounded so a run of unclosed links stays
+            // linear instead of rescanning the line from every bracket.
+            var j = i + 1
+            while j < ns.length, j - i <= maxLinkPart, ns.character(at: j) != close,
+                  ns.character(at: j) != newline, ns.character(at: j) != open { j += 1 }
+            guard j + 1 < ns.length, ns.character(at: j) == close, ns.character(at: j + 1) == lparen else { i = j; continue }
+            var k = j + 2, depth = 1
+            while k < ns.length, depth > 0, k - j <= maxLinkPart {
+                let c = ns.character(at: k)
+                if c == newline { break }
+                if c == backslash { k += 2; continue }
+                if c == lparen { depth += 1 } else if c == rparen { depth -= 1 }
+                k += 1
+            }
+            if depth == 0 {
+                ranges.append(NSRange(location: start, length: k - start))
+                i = k
+            } else {
+                i = j + 1
+            }
+        }
+        return ranges
+    }
 
     /// Claude Code renders inline code with a padding space on each side, so a
     /// copy leaves `word  code  word` (or `code .` before punctuation).
@@ -261,6 +298,16 @@ public enum Converter {
     static let snakeCase = Pattern(#"(?<![\w`\-])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?![\w`\-])"#)
     static let camelCase = Pattern(#"(?<![\w`\-])([a-z]+(?:[A-Z][a-z0-9]+)+)(?![\w`\-])"#)
 
+    static let sentenceBreak = Pattern(#"[a-z]{2,}[.!?] [A-Z]"#)
+    static let flagOrPipe = Pattern(#" --?[a-zA-Z]| \| "#)
+    static let productJS = Pattern(#"^[A-Z][a-z]+\.js$"#)
+    /// `()` or code-looking arguments; "file(s)" is a plural, not a call.
+    static let callArguments = Pattern(#"\(\)$|\([^)]*['"0-9,=:_.][^)]*\)$"#)
+
+    /// Markdown a clip already carries. Link parts are bounded and a label
+    /// can't contain `[`, so a run of brackets can't go quadratic.
+    static let existingMarkdown = Pattern(#"`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\[\]\n]{1,512}\]\([^)\s]{1,512}\)"#)
+
     /// Product names that look like camelCase identifiers but aren't code.
     static let camelExceptions: Set<String> = [
         "iPhone", "iPad", "iPadOS", "macOS", "iOS", "iCloud", "iMessage", "iTunes", "iMac", "iPod",
@@ -277,11 +324,18 @@ public enum Converter {
         var out = ""
         var last = 0
         var count = 0
-        for m in protected.regex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
-            let (text, n) = rule(ns.substring(with: NSRange(location: last, length: m.range.location - last)))
-            out += text + ns.substring(with: m.range)
+        let matched = protected.regex.matches(in: line, range: NSRange(location: 0, length: ns.length)).map(\.range)
+        // Merge both kinds, dropping any range that starts inside an earlier one.
+        var ranges: [NSRange] = []
+        for r in (matched + linkRanges(ns)).sorted(by: { $0.location < $1.location }) {
+            if let prev = ranges.last, r.location < prev.location + prev.length { continue }
+            ranges.append(r)
+        }
+        for r in ranges {
+            let (text, n) = rule(ns.substring(with: NSRange(location: last, length: r.location - last)))
+            out += text + ns.substring(with: r)
             count += n
-            last = m.range.location + m.range.length
+            last = r.location + r.length
         }
         let (text, n) = rule(ns.substring(from: last))
         return (out + text, count + n)
@@ -317,7 +371,7 @@ public enum Converter {
             commandTail.replace(part) { g in
                 guard let body = g[1], let cmd = g[2], commands.contains(cmd) else { return nil }
                 // Without flags or a pipe, only short tails led by a word that isn't English.
-                let flagged = Pattern(#" --?[a-zA-Z]| \| "#).matches(body)
+                let flagged = flagOrPipe.matches(body)
                 let short = body.split(separator: " ").count <= 5 && !body.hasSuffix(".")
                     && !englishCommands.contains(cmd)
                 guard flagged || short else { return nil }
@@ -337,7 +391,7 @@ public enum Converter {
             fileName.replace(part) { g in
                 guard let name = g[1] else { return nil }
                 // "Node.js" and friends are product names.
-                if Pattern(#"^[A-Z][a-z]+\.js$"#).matches(name) { return nil }
+                if productJS.matches(name) { return nil }
                 return code(name)
             }
         }
@@ -345,7 +399,7 @@ public enum Converter {
         apply { part in
             functionCall.replace(part) { g in
                 // "file(s)" is a plural, not a call.
-                guard let call = g[1], Pattern(#"\(\)$|\([^)]*['"0-9,=:_.][^)]*\)$"#).matches(call) else { return nil }
+                guard let call = g[1], callArguments.matches(call) else { return nil }
                 return code(call)
             }
         }
@@ -359,8 +413,7 @@ public enum Converter {
         }
 
         // Count Markdown the text already carried.
-        let existing = Pattern(#"`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\([^)\n]+\)"#)
-        let (_, carried) = existing.replace(line) { $0[0] }
+        let (_, carried) = existingMarkdown.replace(line) { $0[0] }
         return (s, total + carried)
     }
 }

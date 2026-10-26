@@ -181,7 +181,9 @@ public enum Renderer {
 
     /// CommonMark code spans: the closing run is exactly as long as the opening one.
     static let codeSpan = Pattern(#"(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)"#)
-    static let link = Pattern(#"\[([^\]\n]+)\]\((https?://[^)\s]+)\)"#)
+    /// Bounded, and a label can't contain `[`, so unclosed brackets can't
+    /// make this rescan the line from every one of them.
+    static let link = Pattern(#"\[([^\[\]\n]{1,1024})\]\((https?://[^)\s]{1,2048})\)"#)
     static let bareURL = Pattern(#"\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
     static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
     static let italic = Pattern(#"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#)

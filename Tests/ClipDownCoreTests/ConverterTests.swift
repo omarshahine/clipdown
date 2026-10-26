@@ -182,6 +182,9 @@ private func md(_ text: String) -> String { Converter.convert(text).markdown }
             == "Read [config](config.json) and ![img](scripts/install.sh) now")
         #expect(md("Read [config](docs/(v1)/config.json) and ![x](a\\)b/c.json) now")
             == "Read [config](docs/(v1)/config.json) and ![x](a\\)b/c.json) now")
+        #expect(md("Read [config](docs/(v1(foo))/config.json) and ![x](a/(b(c(d)))/e.json) now")
+            == "Read [config](docs/(v1(foo))/config.json) and ![x](a/(b(c(d)))/e.json) now")
+        #expect(md("Unclosed [x](a/b.json and --flag") == "Unclosed [x](`a/b.json` and `--flag`")
         #expect(md("See [config.json](https://example.com) for --verbose")
             == "See [config.json](https://example.com) for `--verbose`")
     }
@@ -218,5 +221,24 @@ private func md(_ text: String) -> String { Converter.convert(text).markdown }
         let slack = Settings.suggestions.first { $0.bundleID == "com.tinyspeck.slackmacgap" }
         #expect(slack?.format == .markdown)
         #expect(Set(Settings.suggestions.map(\.bundleID)).count == Settings.suggestions.count)
+    }
+}
+
+/// Hostile clips must stay fast: the converter runs on the main thread.
+/// Bounds are generous for debug builds and slow CI machines.
+@Suite struct Performance {
+    @Test(arguments: [
+        String(repeating: "[", count: 48_000),
+        String(repeating: "[x](a ", count: 8_000),
+        "[x](" + String(repeating: "(", count: 40_000),
+        String(repeating: "``x", count: 16_000),
+        String(repeating: "a.", count: 24_000) + "zz",
+        "a/" + String(repeating: "a", count: 49_000),
+        String(repeating: "Run  npm test  in ~/a/b.json with --flag\n", count: 1_200),
+    ])
+    func hostileClipsStayFast(_ text: String) {
+        let start = Date()
+        _ = Policy.html(for: text)
+        #expect(Date().timeIntervalSince(start) < 5)
     }
 }
