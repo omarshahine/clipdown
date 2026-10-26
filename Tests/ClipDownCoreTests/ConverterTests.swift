@@ -180,6 +180,8 @@ private func md(_ text: String) -> String { Converter.convert(text).markdown }
     @Test func existingLinksAreLeftIntact() {
         #expect(md("Read [config](config.json) and ![img](scripts/install.sh) now")
             == "Read [config](config.json) and ![img](scripts/install.sh) now")
+        #expect(md("Read [config](docs/(v1)/config.json) and ![x](a\\)b/c.json) now")
+            == "Read [config](docs/(v1)/config.json) and ![x](a\\)b/c.json) now")
         #expect(md("See [config.json](https://example.com) for --verbose")
             == "See [config.json](https://example.com) for `--verbose`")
     }

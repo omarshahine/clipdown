@@ -238,7 +238,7 @@ public enum Converter {
 
     /// Spans that must not be rewritten: existing code spans (any number of
     /// backticks), Markdown links and images (label and target), and URLs.
-    static let protected = Pattern(#"(`+)[^\n]+?\1|!?\[[^\]\n]*\]\([^)\n]*\)|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+    static let protected = Pattern(#"(`+)[^\n]+?\1|!?\[[^\]\n]*\]\((?:[^()\\\n]|\\.|\([^()\n]*\))*\)|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
 
     /// Claude Code renders inline code with a padding space on each side, so a
     /// copy leaves `word  code  word` (or `code .` before punctuation).
