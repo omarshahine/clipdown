@@ -324,6 +324,7 @@ private extension NSColor {
 
 struct GeneralTab: View {
     @EnvironmentObject private var engine: ClipboardEngine
+    @EnvironmentObject private var updates: Updates
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var loginNote: String?
 
@@ -348,8 +349,16 @@ struct GeneralTab: View {
                     }
                 }
             }
+            if updates.isAvailable {
+                Section("Updates") {
+                    Toggle("Check for updates automatically", isOn: Binding(
+                        get: { updates.automaticallyChecks },
+                        set: { updates.automaticallyChecks = $0 }))
+                    Button("Check for Updates Now") { updates.checkForUpdates() }
+                }
+            }
             Section("Privacy") {
-                Text("ClipDown runs entirely on your Mac and never touches the network. It reads the clipboard only while an app in your list is in front, and only when the clip is plain text.")
+                Text("Your clipboard never leaves your Mac. ClipDown reads it only while an app in your list is in front, and only when the clip is plain text. The only network request is the update check, which fetches a release feed from GitHub.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

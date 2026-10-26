@@ -6,12 +6,13 @@ import SwiftUI
 final class AppModel {
     static let shared = AppModel()
     let engine = ClipboardEngine()
+    let updates = Updates()
     private var settingsWindow: NSWindow?
 
     func showSettings() {
         if settingsWindow == nil {
             let window = NSWindow(contentViewController: NSHostingController(
-                rootView: SettingsView().environmentObject(engine)))
+                rootView: SettingsView().environmentObject(engine).environmentObject(updates)))
             window.title = "ClipDown"
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
@@ -120,6 +121,9 @@ struct MenuContent: View {
                     if !engine.convertNow(as: format) { NSSound.beep() }
                 }
             }
+        }
+        if AppModel.shared.updates.isAvailable {
+            Button("Check for Updates…") { AppModel.shared.updates.checkForUpdates() }
         }
         Button("Settings…") { AppModel.shared.showSettings() }
             .keyboardShortcut(",")

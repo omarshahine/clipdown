@@ -1,0 +1,277 @@
+name: Release
+
+# Pushing a vX.Y.Z tag builds, signs, notarizes and publishes ClipDown:
+# a GitHub release with a signed Sparkle appcast (in-app updates) and a
+# Homebrew cask in omarshahine/homebrew-tap. Modeled on Spotmoji's release.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Sign, notarize, and publish
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out ClipDown
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must look like v1.2.3" >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "ARCHIVE_PATH=$GITHUB_WORKSPACE/release/ClipDown-$VERSION.zip" >> "$GITHUB_ENV"
+          echo "DIRECT_ARCHIVE_PATH=$GITHUB_WORKSPACE/release/ClipDown.zip" >> "$GITHUB_ENV"
+          echo "APPCAST_PATH=$GITHUB_WORKSPACE/release/appcast.xml" >> "$GITHUB_ENV"
+          echo "TAP_TAG=clipdown-v$VERSION" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: swift test
+
+      - name: Import Developer ID certificate
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          : "${CERTIFICATE_BASE64:?Missing DEVELOPER_ID_CERTIFICATE_BASE64}"
+          : "${CERTIFICATE_PASSWORD:?Missing DEVELOPER_ID_CERTIFICATE_PASSWORD}"
+          : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID repository variable}"
+
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/clipdown-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$CERTIFICATE_PASSWORD" -A -f pkcs12
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1)"
+          if [[ -z "$SIGNING_IDENTITY" ]]; then
+            echo "The certificate secret does not contain a Developer ID Application identity." >&2
+            exit 1
+          fi
+          if [[ "$SIGNING_IDENTITY" != *"($APPLE_TEAM_ID)"* ]]; then
+            echo "The Developer ID certificate does not belong to APPLE_TEAM_ID." >&2
+            exit 1
+          fi
+
+          echo "CODESIGN_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build signed app
+        shell: bash
+        env:
+          APP_VERSION: ${{ env.VERSION }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          OUTPUT_DIR: dist
+        run: ./scripts/build-app.sh
+
+      - name: Notarize and staple
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${ASC_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID}"
+          : "${ASC_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID}"
+          : "${ASC_PRIVATE_KEY:?Missing APP_STORE_CONNECT_API_PRIVATE_KEY}"
+
+          NOTARIZATION_ARCHIVE="$RUNNER_TEMP/ClipDown-notarization.zip"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$ASC_KEY_PATH"
+          chmod 600 "$ASC_KEY_PATH"
+          ditto -c -k --sequesterRsrc --keepParent dist/ClipDown.app "$NOTARIZATION_ARCHIVE"
+          xcrun notarytool submit "$NOTARIZATION_ARCHIVE" \
+            --key "$ASC_KEY_PATH" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
+            --wait
+          xcrun stapler staple dist/ClipDown.app
+          xcrun stapler validate dist/ClipDown.app
+          spctl --assess --type execute --verbose=2 dist/ClipDown.app
+
+      - name: Validate notarized app
+        run: ./scripts/validate-app.sh dist/ClipDown.app "$VERSION"
+
+      - name: Package notarized app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          ditto -c -k --sequesterRsrc --keepParent dist/ClipDown.app "$ARCHIVE_PATH"
+          SHA256="$(shasum -a 256 "$ARCHIVE_PATH" | awk '{print $1}')"
+          echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+
+      - name: Generate signed Sparkle appcast
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${SPARKLE_PRIVATE_KEY:?Missing SPARKLE_PRIVATE_KEY}"
+
+          RELEASE_NOTES_PATH="$GITHUB_WORKSPACE/release/ClipDown-$VERSION.md"
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" \
+            -f target_commitish="$GITHUB_SHA" \
+            --jq '.body' > "$RELEASE_NOTES_PATH"
+
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | \
+            .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+              --ed-key-file - \
+              --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
+              --link "https://omarknows.app/clipdown/" \
+              --embed-release-notes \
+              --maximum-versions 1 \
+              --maximum-deltas 0 \
+              -o "$APPCAST_PATH" \
+              "$GITHUB_WORKSPACE/release"
+
+          test -s "$APPCAST_PATH"
+          grep -q 'sparkle:edSignature=' "$APPCAST_PATH"
+          grep -q "ClipDown-$VERSION.zip" "$APPCAST_PATH"
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ditto "$ARCHIVE_PATH" "$DIRECT_ARCHIVE_PATH"
+          cmp "$ARCHIVE_PATH" "$DIRECT_ARCHIVE_PATH"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ARCHIVE_PATH" "$DIRECT_ARCHIVE_PATH" "$APPCAST_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$ARCHIVE_PATH" "$DIRECT_ARCHIVE_PATH" "$APPCAST_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "ClipDown $VERSION"
+          fi
+
+      - name: Verify Sparkle upgrade from the previous release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PREVIOUS_TAG="$(
+            gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
+              --json tagName,isDraft,isPrerelease \
+              --jq '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' |
+              awk -v current="$GITHUB_REF_NAME" '$0 != current { print; exit }'
+          )"
+          if [[ -z "$PREVIOUS_TAG" ]]; then
+            echo "No previous release; skipping upgrade-path verification."
+            exit 0
+          fi
+
+          PREVIOUS_DIR="$RUNNER_TEMP/previous-release"
+          mkdir -p "$PREVIOUS_DIR/archive" "$PREVIOUS_DIR/app"
+          gh release download "$PREVIOUS_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'ClipDown-*.zip' \
+            --dir "$PREVIOUS_DIR/archive"
+          shopt -s nullglob
+          PREVIOUS_ARCHIVES=("$PREVIOUS_DIR/archive"/ClipDown-*.zip)
+          if [[ ${#PREVIOUS_ARCHIVES[@]} -ne 1 ]]; then
+            echo "Expected one previous ClipDown archive, found ${#PREVIOUS_ARCHIVES[@]}." >&2
+            exit 1
+          fi
+          ditto -x -k "${PREVIOUS_ARCHIVES[0]}" "$PREVIOUS_DIR/app"
+          ./scripts/verify-update-feed.sh "$PREVIOUS_DIR/app/ClipDown.app" "$VERSION"
+
+      - name: Check out public Homebrew tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          repository: omarshahine/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Publish public Homebrew release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${GH_TOKEN:?Missing HOMEBREW_TAP_TOKEN}"
+          if gh release view "$TAP_TAG" --repo omarshahine/homebrew-tap >/dev/null 2>&1; then
+            gh release upload "$TAP_TAG" "$ARCHIVE_PATH" --repo omarshahine/homebrew-tap --clobber
+          else
+            gh release create "$TAP_TAG" "$ARCHIVE_PATH" \
+              --repo omarshahine/homebrew-tap \
+              --target main \
+              --title "ClipDown $VERSION" \
+              --notes "Signed and notarized ClipDown $VERSION for Homebrew distribution."
+          fi
+
+      - name: Update Homebrew cask
+        shell: bash
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${HOMEBREW_GITHUB_API_TOKEN:?Missing HOMEBREW_TAP_TOKEN}"
+          mkdir -p homebrew-tap/Casks
+          sed \
+            -e "s/__VERSION__/$VERSION/g" \
+            -e "s/__SHA256__/$SHA256/g" \
+            packaging/clipdown.rb.template > homebrew-tap/Casks/clipdown.rb
+          brew style homebrew-tap/Casks/clipdown.rb
+          brew tap-new --no-git clipdown/validation
+          VALIDATION_TAP="$(brew --repository clipdown/validation)"
+          mkdir -p "$VALIDATION_TAP/Casks"
+          ditto homebrew-tap/Casks/clipdown.rb "$VALIDATION_TAP/Casks/clipdown.rb"
+          # `--new` enforces Homebrew/core's notability threshold, which does not
+          # apply to casks distributed from a third-party tap.
+          brew audit --cask --strict --online clipdown/validation/clipdown
+
+      - name: Push Homebrew cask
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C homebrew-tap config user.name "ClipDown Release Bot"
+          git -C homebrew-tap config user.email "10343873+omarshahine@users.noreply.github.com"
+          git -C homebrew-tap add -- Casks/clipdown.rb
+          if git -C homebrew-tap diff --cached --quiet; then
+            exit 0
+          fi
+          git -C homebrew-tap commit -m "clipdown $VERSION"
+          git -C homebrew-tap push origin HEAD:main
+
+      - name: Remove temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${SIGNING_KEYCHAIN_PATH:-}" && -e "$SIGNING_KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$SIGNING_KEYCHAIN_PATH"
+          fi

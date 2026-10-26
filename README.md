@@ -29,19 +29,27 @@ It just works. No hotkey, no extra step.
 
 ## Install
 
-You'll need macOS 15 or later and Xcode 26 or later to build it.
+ClipDown needs macOS 15 or later. Releases are signed with a Developer ID, notarized by Apple, and update themselves through [Sparkle](https://sparkle-project.org).
+
+**Homebrew** (puts the `clipdown` command on your PATH too):
+
+```bash
+brew install --cask omarshahine/tap/clipdown
+```
+
+**Direct download:** grab `ClipDown.zip` from the [latest release](https://github.com/omarshahine/clipdown/releases/latest), unzip it, and drag ClipDown into Applications.
+
+Open it once and it adds itself to your login items. You'll find it in the menu bar. The first time ClipDown reads the clipboard, macOS may ask whether it can paste from other apps. Choose **Allow**. That's the whole point of the app.
+
+New versions arrive on their own: ClipDown checks once a day, and **Check for Updates…** in the menu checks now. Turn automatic checks off in **Settings > General**.
+
+**From source** (needs Xcode 26 or later):
 
 ```bash
 git clone https://github.com/omarshahine/clipdown.git
 cd clipdown
-scripts/install.sh
+scripts/install.sh      # builds into ~/Applications; scripts/uninstall.sh removes it
 ```
-
-That builds `ClipDown.app` into `~/Applications`, launches it, and adds it to your login items. You'll find it in the menu bar. If `~/.local/bin` exists, the `clipdown` command goes there too.
-
-The first time ClipDown reads the clipboard, macOS may ask whether it can paste from other apps. Choose **Allow**. That's the whole point of the app.
-
-To remove it: `scripts/uninstall.sh`.
 
 ## Pick your apps
 
@@ -63,7 +71,7 @@ Find any app's bundle ID with `osascript -e 'id of app "Slack"'`.
 
 ## What it recognizes
 
-ClipDown uses fast, predictable heuristics. No AI model, no network, nothing leaves your Mac.
+ClipDown uses fast, predictable heuristics. No AI model, and your clipboard never leaves your Mac.
 
 | In the copied text | Becomes |
 |---|---|
@@ -89,7 +97,8 @@ Not sure what it'll do? The **Preview** tab in Settings shows the result for any
 
 ## Privacy
 
-- Runs entirely on your Mac. No network access, no analytics, no AI service.
+- Your clipboard never leaves your Mac. No analytics, no AI service.
+- The only network request is the daily update check, which fetches a release feed from GitHub. Sparkle sends no system profile, and you can turn checks off in Settings.
 - Reads the clipboard only while an app in your list is in front, and only after the clipboard's type list says it's plain text.
 - Skips anything marked concealed or transient (the [nspasteboard.org](http://nspasteboard.org) conventions password managers use).
 

@@ -1,0 +1,29 @@
+# typed: strict
+# frozen_string_literal: true
+
+cask "clipdown" do
+  version "__VERSION__"
+  sha256 "__SHA256__"
+
+  url "https://github.com/omarshahine/homebrew-tap/releases/download/clipdown-v#{version}/ClipDown-#{version}.zip",
+      verified: "github.com/omarshahine/homebrew-tap/"
+  name "ClipDown"
+  desc "Keeps terminal text formatted when you paste it into Teams, Slack and more"
+  homepage "https://omarknows.app/clipdown/"
+
+  auto_updates true
+  depends_on macos: :sequoia
+
+  app "ClipDown.app"
+  binary "#{appdir}/ClipDown.app/Contents/MacOS/clipdown"
+
+  uninstall quit:       "com.omarshahine.clipdown",
+            login_item: "ClipDown"
+
+  zap trash: [
+    "~/Library/Caches/com.omarshahine.clipdown",
+    "~/Library/Caches/com.omarshahine.clipdown.lock",
+    "~/Library/HTTPStorages/com.omarshahine.clipdown",
+    "~/Library/Preferences/com.omarshahine.clipdown.plist",
+  ]
+end

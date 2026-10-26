@@ -7,9 +7,19 @@ let package = Package(
     products: [
         .executable(name: "clipdown", targets: ["clipdown"]),
     ],
+    dependencies: [
+        // Same pinned version as Spotmoji.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+    ],
     targets: [
         .target(name: "ClipDownCore"),
-        .executableTarget(name: "clipdown", dependencies: ["ClipDownCore"]),
+        .executableTarget(
+            name: "clipdown",
+            dependencies: [
+                "ClipDownCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ]
+        ),
         .testTarget(name: "ClipDownCoreTests", dependencies: ["ClipDownCore"]),
     ]
 )
