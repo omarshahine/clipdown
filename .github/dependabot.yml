@@ -1,0 +1,23 @@
+version: 2
+# Grouped and monthly on purpose: one PR per ecosystem per month is
+# something a person can actually read.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: deps
+  # No package dependencies today; this catches any that get added.
+  - package-ecosystem: swift
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      swift:
+        patterns: ["*"]
+    commit-message:
+      prefix: deps
