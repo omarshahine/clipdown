@@ -29,9 +29,7 @@ func fail(_ message: String) -> Never {
 }
 
 func editSettings(_ change: (inout Settings) -> Void) {
-    var settings = SettingsStore.load()
-    change(&settings)
-    SettingsStore.save(settings)
+    SettingsStore.edit(change)
 }
 
 /// The value after `flag`, failing if the flag is there without one.

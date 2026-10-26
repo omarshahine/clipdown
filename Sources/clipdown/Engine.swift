@@ -49,12 +49,9 @@ final class ClipboardEngine: ObservableObject {
     }
 
     func update(_ change: (inout Settings) -> Void) {
-        // Apply the edit to what's on disk, not the cached copy, so a CLI edit
-        // that hasn't reached us yet isn't overwritten.
-        var fresh = SettingsStore.load()
-        change(&fresh)
-        settings = fresh
-        SettingsStore.save(fresh)
+        // Apply the edit to what's on disk, not the cached copy, under the
+        // store's lock, so a concurrent CLI edit isn't overwritten.
+        settings = SettingsStore.edit(change)
         frontmostChanged()
     }
 

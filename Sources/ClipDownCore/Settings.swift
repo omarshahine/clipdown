@@ -71,10 +71,14 @@ public enum SettingsStore {
     public static let domain = "com.omarshahine.clipdown"
     static let key = "settings"
 
+    /// Tests point the store at a throwaway domain instead of real settings.
+    nonisolated(unsafe) static var testDomain: String?
+
     static var defaults: UserDefaults {
+        if let testDomain { return UserDefaults(suiteName: testDomain)! }
         // Inside the app bundle the domain is the standard one; from a bare
         // binary (swift run, a symlink on PATH) the suite points at it.
-        Bundle.main.bundleIdentifier == domain ? .standard : UserDefaults(suiteName: domain)!
+        return Bundle.main.bundleIdentifier == domain ? .standard : UserDefaults(suiteName: domain)!
     }
 
     public static func load() -> Settings {
@@ -92,6 +96,21 @@ public enum SettingsStore {
         defaults.synchronize()
         DistributedNotificationCenter.default().postNotificationName(
             changedNotification, object: nil, deliverImmediately: true)
+    }
+
+    /// Loads, changes and saves under an exclusive lock shared by the app and
+    /// the CLI, so two edits can't interleave and drop one another.
+    @discardableResult
+    public static func edit(_ change: (inout Settings) -> Void) -> Settings {
+        let lockURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("\(testDomain ?? domain).lock")
+        let fd = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
+        if fd >= 0 { flock(fd, LOCK_EX) }
+        defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
+        var settings = load()
+        change(&settings)
+        save(settings)
+        return settings
     }
 
     /// Posted after every save so a running app picks up CLI edits.

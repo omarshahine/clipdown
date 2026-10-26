@@ -32,3 +32,22 @@ import Testing
         #expect(Policy.html(for: text) == Renderer.htmlDocument("Run `npm test` first"))
     }
 }
+
+@Suite(.serialized) struct SettingsStoreTests {
+    @Test func concurrentEditsAreNotLost() async {
+        SettingsStore.testDomain = "com.omarshahine.clipdown.tests"
+        defer {
+            UserDefaults().removePersistentDomain(forName: "com.omarshahine.clipdown.tests")
+            SettingsStore.testDomain = nil
+        }
+        SettingsStore.save(Settings())
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<20 {
+                group.addTask {
+                    SettingsStore.edit { $0.targets.append(TargetApp(bundleID: "test.\(i)", name: "T\(i)", format: .markdown)) }
+                }
+            }
+        }
+        #expect(Set(SettingsStore.load().targets.map(\.bundleID)).isSuperset(of: (0..<20).map { "test.\($0)" }))
+    }
+}
