@@ -1,4 +1,5 @@
 import ClipDownCore
+import Combine
 import ServiceManagement
 import SwiftUI
 
@@ -8,8 +9,15 @@ final class AppModel {
     let engine = ClipboardEngine()
     let updates = Updates()
     private var settingsWindow: NSWindow?
+    private var conversions: AnyCancellable?
 
-    func showSettings() {
+    init() {
+        conversions = engine.$lastConversion.compactMap { $0 }.sink { _ in StarAsk.recordConversion() }
+    }
+
+    /// `activate: false` shows the window without pulling focus from the app
+    /// you're working in.
+    func showSettings(activate: Bool = true) {
         if settingsWindow == nil {
             let window = NSWindow(contentViewController: NSHostingController(
                 rootView: SettingsView().environmentObject(engine).environmentObject(updates)))
@@ -20,10 +28,46 @@ final class AppModel {
             window.setFrameAutosaveName("Settings")
             settingsWindow = window
         }
+        guard activate else {
+            settingsWindow?.orderFrontRegardless()
+            return
+        }
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
         // Don't let the Preview editor grab keystrokes meant for another app.
         settingsWindow?.makeFirstResponder(nil)
+    }
+}
+
+/// The GitHub star ask: a button that's always in the menu and Settings, plus
+/// a one-time note in Settings > General after a few conversions.
+@MainActor
+enum StarAsk {
+    static let url = URL(string: "https://github.com/omarshahine/clipdown")!
+    /// Conversions before the one-time ask.
+    static let threshold = 5
+    static let countKey = "conversionCount"
+    static let askedKey = "starAsked"
+    /// Set while the note is showing in Settings > General.
+    static let pendingKey = "starAskPending"
+
+    static func recordConversion() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: askedKey) else { return }
+        let count = defaults.integer(forKey: countKey) + 1
+        defaults.set(count, forKey: countKey)
+        guard count >= threshold else { return }
+        defaults.set(true, forKey: askedKey)
+        defaults.set(true, forKey: pendingKey)
+        defaults.set("general", forKey: "settingsTab")
+        AppModel.shared.showSettings(activate: false)
+    }
+
+    static func star() {
+        NSWorkspace.shared.open(url)
+        // Starred already: never ask.
+        UserDefaults.standard.set(true, forKey: askedKey)
+        UserDefaults.standard.set(false, forKey: pendingKey)
     }
 }
 
@@ -127,6 +171,7 @@ struct MenuContent: View {
         }
         Button("Settings…") { AppModel.shared.showSettings() }
             .keyboardShortcut(",")
+        Button("Star ClipDown on GitHub") { StarAsk.star() }
         Divider()
         Button("Quit ClipDown") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

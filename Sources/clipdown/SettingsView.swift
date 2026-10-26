@@ -327,9 +327,13 @@ struct GeneralTab: View {
     @EnvironmentObject private var updates: Updates
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var loginNote: String?
+    @AppStorage(StarAsk.pendingKey) private var starAskPending = false
 
     var body: some View {
         Form {
+            if starAskPending {
+                Section { StarAskNote(dismiss: { starAskPending = false }) }
+            }
             Section {
                 Toggle("Reshape the clipboard for the apps in my list", isOn: Binding(
                     get: { engine.settings.enabled },
@@ -364,7 +368,11 @@ struct GeneralTab: View {
             }
             Section {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")
-                Link("ClipDown on GitHub", destination: URL(string: "https://github.com/omarshahine/clipdown")!)
+                HStack {
+                    Link("ClipDown on GitHub", destination: StarAsk.url)
+                    Spacer()
+                    Button("Star on GitHub", systemImage: "star", action: StarAsk.star)
+                }
             }
         }
         .formStyle(.grouped)
@@ -383,5 +391,31 @@ struct GeneralTab: View {
     private var loginStatusNote: String? {
         LoginItem.status == .requiresApproval
             ? "macOS needs your approval in System Settings > General > Login Items." : nil
+    }
+}
+
+/// The one-time ask, shown at the top of General after a few conversions.
+struct StarAskNote: View {
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(nsImage: Bundle.main.image(forResource: "Omar")
+                ?? NSImage(systemSymbolName: "person.crop.circle.fill", accessibilityDescription: nil)!)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 56, height: 56)
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Hey, I'm Omar, and I'm the developer of ClipDown. If you love this app, please consider starring it on GitHub. I'll only ever ask this once.")
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button("Star on GitHub", systemImage: "star.fill", action: StarAsk.star)
+                        .buttonStyle(.borderedProminent)
+                    Button("No Thanks", action: dismiss)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
