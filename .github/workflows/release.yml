@@ -52,7 +52,9 @@ jobs:
         run: |
           set -euo pipefail
           : "${CERTIFICATE_BASE64:?Missing DEVELOPER_ID_CERTIFICATE_BASE64}"
-          : "${CERTIFICATE_PASSWORD:?Missing DEVELOPER_ID_CERTIFICATE_PASSWORD}"
+          # A .p12 exported without a password is fine: leave the password
+          # secret unset and it imports with an empty one.
+          CERTIFICATE_PASSWORD="${CERTIFICATE_PASSWORD:-}"
           : "${APPLE_TEAM_ID:?Missing APPLE_TEAM_ID repository variable}"
 
           CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"

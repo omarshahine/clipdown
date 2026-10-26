@@ -16,7 +16,7 @@ The app reads its feed from `https://github.com/omarshahine/clipdown/releases/la
 | Name | Kind | Purpose |
 |---|---|---|
 | `DEVELOPER_ID_CERTIFICATE_BASE64` | secret | Base64 `.p12` with the Developer ID Application certificate and key |
-| `DEVELOPER_ID_CERTIFICATE_PASSWORD` | secret | Password used when exporting the `.p12` |
+| `DEVELOPER_ID_CERTIFICATE_PASSWORD` | secret | Password used when exporting the `.p12` (leave unset if it has none) |
 | `APP_STORE_CONNECT_API_KEY_ID` | secret | App Store Connect API key ID (notarization) |
 | `APP_STORE_CONNECT_API_ISSUER_ID` | secret | App Store Connect API issuer ID |
 | `APP_STORE_CONNECT_API_PRIVATE_KEY` | secret | Contents of the matching `AuthKey_*.p8` |
