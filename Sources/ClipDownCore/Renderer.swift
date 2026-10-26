@@ -1,0 +1,174 @@
+import Foundation
+
+/// Renders the Markdown subset the converter produces (plus common Markdown a
+/// clip may already carry) to HTML that Teams' compose box accepts.
+public enum Renderer {
+    public static func htmlDocument(_ markdown: String) -> String {
+        "<html><head><meta charset=\"utf-8\"></head><body>" + html(markdown) + "</body></html>"
+    }
+
+    public static func html(_ markdown: String) -> String {
+        let lines = markdown.components(separatedBy: "\n")
+        var out = ""
+        var paragraph: [String] = []
+        var lists: [(tag: String, indent: Int)] = []
+        var i = 0
+
+        func flushParagraph() {
+            guard !paragraph.isEmpty else { return }
+            out += "<p>" + paragraph.map(inline).joined(separator: "<br>") + "</p>"
+            paragraph = []
+        }
+        func closeLists(above indent: Int = -1) {
+            while let top = lists.last, top.indent > indent {
+                out += "</li></\(top.tag)>"
+                lists.removeLast()
+            }
+        }
+
+        while i < lines.count {
+            let line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.hasPrefix("```") {
+                flushParagraph()
+                closeLists()
+                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                var body: [String] = []
+                i += 1
+                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    body.append(lines[i])
+                    i += 1
+                }
+                i += 1
+                let cls = lang.isEmpty ? "" : " class=\"language-\(escape(lang))\""
+                out += "<pre><code\(cls)>" + escape(body.joined(separator: "\n")) + "</code></pre>"
+                continue
+            }
+
+            if trimmed.isEmpty {
+                flushParagraph()
+                // A list survives blank lines only if another item follows.
+                let next = lines[(i + 1)...].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                if next.map({ Converter.listItem.firstMatch($0) == nil && !$0.hasPrefix(" ") }) ?? true {
+                    closeLists()
+                }
+                i += 1
+                continue
+            }
+
+            if let m = Converter.listItem.firstMatch(line) {
+                flushParagraph()
+                let indent = (m[1] ?? "").count
+                let tag = (m[2] ?? "-").first!.isNumber ? "ol" : "ul"
+                closeLists(above: indent)
+                if let top = lists.last, top.indent == indent {
+                    if top.tag == tag {
+                        out += "</li>"
+                    } else {
+                        out += "</li></\(top.tag)>"
+                        lists.removeLast()
+                        out += "<\(tag)>"
+                        lists.append((tag, indent))
+                    }
+                } else {
+                    out += "<\(tag)>"
+                    lists.append((tag, indent))
+                }
+                out += "<li>" + inline(m[3] ?? "")
+                i += 1
+                continue
+            }
+
+            // Indented text under a list item continues that item.
+            if !lists.isEmpty, line.hasPrefix(" ") {
+                out += "<br>" + inline(trimmed)
+                i += 1
+                continue
+            }
+            closeLists()
+
+            if let m = heading.firstMatch(line) {
+                flushParagraph()
+                let level = min((m[1] ?? "#").count + 1, 4)
+                out += "<h\(level)>" + inline(m[2] ?? "") + "</h\(level)>"
+                i += 1
+                continue
+            }
+
+            if trimmed.hasPrefix(">") {
+                flushParagraph()
+                var quoted: [String] = []
+                while i < lines.count, lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(">") {
+                    let q = lines[i].trimmingCharacters(in: .whitespaces).dropFirst()
+                    quoted.append(String(q.hasPrefix(" ") ? q.dropFirst() : q))
+                    i += 1
+                }
+                out += "<blockquote>" + html(quoted.joined(separator: "\n")) + "</blockquote>"
+                continue
+            }
+
+            if trimmed.hasPrefix("|"), i + 1 < lines.count, tableRule.matches(lines[i + 1]) {
+                flushParagraph()
+                out += "<table><thead><tr>" + cells(trimmed).map { "<th>\(inline($0))</th>" }.joined() + "</tr></thead><tbody>"
+                i += 2
+                while i < lines.count, lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                    out += "<tr>" + cells(lines[i]).map { "<td>\(inline($0))</td>" }.joined() + "</tr>"
+                    i += 1
+                }
+                out += "</tbody></table>"
+                continue
+            }
+
+            paragraph.append(line)
+            i += 1
+        }
+        flushParagraph()
+        closeLists()
+        return out
+    }
+
+    static let heading = Pattern(#"^(#{1,6})\s+(.*)$"#)
+    static let tableRule = Pattern(#"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$"#)
+
+    static func cells(_ row: String) -> [String] {
+        var t = row.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        return t.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    static func escape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    static let codeSpan = Pattern(#"``\s?(.+?)\s?``|`([^`\n]+)`"#)
+    static let link = Pattern(#"\[([^\]\n]+)\]\((https?://[^)\s]+)\)"#)
+    static let bareURL = Pattern(#"\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+    static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
+    static let italic = Pattern(#"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#)
+
+    static func inline(_ text: String) -> String {
+        // Code spans and links are swapped for placeholders so later passes can't touch them.
+        var stash: [String] = []
+        func hold(_ html: String) -> String {
+            stash.append(html)
+            return "\u{1}\(stash.count - 1)\u{2}"
+        }
+        var s = codeSpan.replace(text) { g in hold("<code>" + escape(g[1] ?? g[2] ?? "") + "</code>") }.0
+        s = link.replace(s) { g in
+            hold("<a href=\"\(escape(g[2] ?? ""))\">" + escape(g[1] ?? "") + "</a>")
+        }.0
+        s = bareURL.replace(s) { g in
+            let url = escape(g[0] ?? "")
+            return hold("<a href=\"\(url)\">\(url)</a>")
+        }.0
+        s = escape(s)
+        s = bold.replace(s) { g in "<strong>" + (g[1] ?? "") + "</strong>" }.0
+        s = italic.replace(s) { g in "<em>" + (g[1] ?? "") + "</em>" }.0
+        return Pattern("\u{1}(\\d+)\u{2}").replace(s) { g in stash[Int(g[1]!)!] }.0
+    }
+}

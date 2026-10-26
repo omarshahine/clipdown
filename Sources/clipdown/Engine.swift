@@ -1,0 +1,149 @@
+import AppKit
+import ClipDownCore
+import os
+
+let log = Logger(subsystem: "com.omarshahine.clipdown", category: "engine")
+
+/// What ClipDown last put on the clipboard.
+enum Shape: String {
+    case plain, richText, markdown
+    /// A Convert Now result: left as-is until the next copy.
+    case manual
+
+    init(_ format: OutputFormat) {
+        switch format {
+        case .richText: self = .richText
+        case .markdown: self = .markdown
+        }
+    }
+}
+
+struct Conversion {
+    let appName: String
+    let format: OutputFormat
+    let date: Date
+}
+
+/// Watches which app is in front and keeps the clipboard in the right shape
+/// for it: HTML for rich-text apps, Markdown for Markdown apps, and the
+/// original text everywhere else.
+@MainActor
+final class ClipboardEngine: ObservableObject {
+    @Published private(set) var settings = SettingsStore.load()
+    @Published private(set) var lastConversion: Conversion?
+
+    private let pasteboard = NSPasteboard.general
+    private var lastChangeCount = -1
+    private var timer: Timer?
+
+    func start() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.frontmostChanged() } }
+        // Edits made from the CLI.
+        DistributedNotificationCenter.default().addObserver(
+            forName: SettingsStore.changedNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.reload() } }
+        frontmostChanged()
+        log.info("started; targets: \(self.settings.targets.map(\.bundleID).joined(separator: ", "))")
+    }
+
+    func update(_ change: (inout Settings) -> Void) {
+        change(&settings)
+        SettingsStore.save(settings)
+        frontmostChanged()
+    }
+
+    private func reload() {
+        let fresh = SettingsStore.load()
+        guard fresh != settings else { return }
+        settings = fresh
+        frontmostChanged()
+    }
+
+    private var frontmostTarget: TargetApp? {
+        settings.target(for: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    }
+
+    private func frontmostChanged() {
+        let target = frontmostTarget
+        reshape(for: target)
+        if target != nil {
+            // Keep watching while a target app is in front, so a copy made
+            // without switching apps (Universal Clipboard, a clipboard
+            // manager) is picked up too. Ticks read only the change count.
+            if timer == nil {
+                timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.tick() }
+                }
+            }
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+
+    private func tick() {
+        guard pasteboard.changeCount != lastChangeCount else { return }
+        reshape(for: frontmostTarget)
+    }
+
+    private func reshape(for target: TargetApp?) {
+        defer { lastChangeCount = pasteboard.changeCount }
+        let types = pasteboard.types?.map(\.rawValue) ?? []
+
+        // A clip ClipDown already touched: switch it to the shape this app wants.
+        if types.contains(Policy.markerType) {
+            guard let original = pasteboard.string(forType: .init(Policy.markerType)) else { return }
+            let current = pasteboard.string(forType: .init(Policy.shapeType)).flatMap(Shape.init) ?? .plain
+            let wanted = target.map { Shape($0.format) } ?? .plain
+            guard current != .manual, current != wanted, let markdown = Policy.markdown(for: original) else { return }
+            write(original: original, markdown: markdown, shape: wanted)
+            return
+        }
+
+        // A fresh clip: only read its contents when a target app is in front
+        // and the type list says it's plain text.
+        guard let target, Policy.isCandidate(types: types),
+              let text = pasteboard.string(forType: .string),
+              let markdown = Policy.markdown(for: text) else { return }
+        write(original: text, markdown: markdown, shape: Shape(target.format))
+        lastConversion = Conversion(appName: target.name, format: target.format, date: .now)
+        log.info("converted \(text.count) chars for \(target.bundleID) as \(target.format.rawValue)")
+    }
+
+    /// Converts the clipboard for whatever app you paste into next, ignoring
+    /// the app list. Returns false when there's nothing to convert.
+    @discardableResult
+    func convertNow(as format: OutputFormat) -> Bool {
+        let types = pasteboard.types?.map(\.rawValue) ?? []
+        let text = types.contains(Policy.markerType)
+            ? pasteboard.string(forType: .init(Policy.markerType))
+            : (Policy.isCandidate(types: types) ? pasteboard.string(forType: .string) : nil)
+        guard let text, let markdown = Policy.markdown(for: text) else { return false }
+        write(original: text, markdown: markdown, shape: .manual, manualFormat: format)
+        lastConversion = Conversion(appName: "Convert Now", format: format, date: .now)
+        lastChangeCount = pasteboard.changeCount
+        return true
+    }
+
+    private func write(original: String, markdown: String, shape: Shape, manualFormat: OutputFormat? = nil) {
+        let item = NSPasteboardItem()
+        switch manualFormat ?? (shape == .markdown ? .markdown : shape == .richText ? .richText : nil) {
+        case .richText:
+            item.setString(original, forType: .string)
+            item.setString(Renderer.htmlDocument(markdown), forType: .html)
+        case .markdown:
+            item.setString(markdown, forType: .string)
+        case nil:
+            item.setString(original, forType: .string)
+        }
+        item.setString(original, forType: .init(Policy.markerType))
+        item.setString(shape.rawValue, forType: .init(Policy.shapeType))
+        // nspasteboard.org convention: clipboard managers skip this entry,
+        // since the original is already in their history.
+        item.setData(Data(), forType: .init("org.nspasteboard.AutoGeneratedType"))
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+    }
+}
