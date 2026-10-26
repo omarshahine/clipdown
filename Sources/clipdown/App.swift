@@ -57,9 +57,15 @@ final class StarAsk: ObservableObject {
     static let pendingKey = "starAskPending"
 
     @Published private(set) var starred = false
+    /// Bumped by every star action, so a status check that started earlier
+    /// can't overwrite the result or bring the ask back.
+    private var generation = 0
 
     func refresh() async {
-        starred = await GitHubCLI.run(["api", "user/starred/\(Self.repo)"]) == 0
+        let started = generation
+        let result = await GitHubCLI.run(["api", "user/starred/\(Self.repo)"]) == 0
+        guard started == generation else { return }
+        starred = result
     }
 
     func recordConversion() {
@@ -70,9 +76,10 @@ final class StarAsk: ObservableObject {
         guard count >= Self.threshold else { return }
         defaults.set(true, forKey: Self.askedKey)
         Task {
-            // Already a stargazer: nothing to ask.
+            // Already a stargazer, or starred while we checked: nothing to ask.
+            let started = generation
             await refresh()
-            guard !starred else { return }
+            guard started == generation, !starred else { return }
             defaults.set(true, forKey: Self.pendingKey)
             defaults.set("general", forKey: SettingsTabs.tabKey)
             AppModel.shared.showSettings(activate: false)
@@ -84,8 +91,12 @@ final class StarAsk: ObservableObject {
         // Starred already, or chose to: never ask.
         defaults.set(true, forKey: Self.askedKey)
         defaults.set(false, forKey: Self.pendingKey)
+        generation += 1
         Task {
-            if await GitHubCLI.run(["api", "-X", "PUT", "user/starred/\(Self.repo)"]) == 0 {
+            let ok = await GitHubCLI.run(["api", "-X", "PUT", "user/starred/\(Self.repo)"]) == 0
+            // Checks that started while the star was in flight are stale too.
+            generation += 1
+            if ok {
                 starred = true
             } else {
                 NSWorkspace.shared.open(Self.url)

@@ -2,6 +2,10 @@
 
 What changed in each ClipDown release, newest first. The release workflow publishes these notes, so every version needs a section before it's tagged.
 
+## 1.2.0
+
+- Settings has standard Mac toolbar tabs, and the window is titled after the tab you're on. It reopens on the tab you used last.
+
 ## 1.1.2
 
 - Fixed: copies of ClipDown built from source never saw updates. Releases were numbered below them, so Sparkle thought they were already newer. Release builds now take the same build number as source builds.
