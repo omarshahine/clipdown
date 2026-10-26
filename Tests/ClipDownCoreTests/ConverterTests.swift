@@ -225,6 +225,80 @@ private func md(_ text: String) -> String { Converter.convert(text).markdown }
     }
 }
 
+/// Terminals hard-wrap at the window width; a paste should flow again.
+@Suite struct TerminalWrapping {
+    @Test func quoteBarFromClaudeCode() {
+        let text = """
+          Teams-ready:
+
+          │ The Autopilot Daily Digest failure is tracked in https://example.com/issues/22594, assigned to Harry. The original run
+          │ failed with “owner node binding required” before reading the Windows archives. After the status permission was
+          │ saved, a later test returned an unconfirmed execution result. No successful digest delivery is verified.
+        """
+        #expect(md(text) == "Teams-ready:\n\n> The Autopilot Daily Digest failure is tracked in "
+            + "https://example.com/issues/22594, assigned to Harry. The original run failed with “owner node binding "
+            + "required” before reading the Windows archives. After the status permission was saved, a later test "
+            + "returned an unconfirmed execution result. No successful digest delivery is verified.")
+        #expect(Renderer.html(md(text)).contains("<blockquote><p>The Autopilot"))
+    }
+
+    @Test func boxTableIsNotAQuote() {
+        let text = "│ name │ size │\n│ a.txt │ 3 │"
+        #expect(md(text).hasPrefix("```"))
+    }
+
+    @Test func plainProseFromClaudeCodeConverts() {
+        let text = """
+        ● The release went out this morning and the update feed now points at the new build, so anyone
+          running the app will see the prompt within a day. Nothing else changed in the packaging, and
+          the Homebrew cask picked up the new version on its own.
+        """
+        guard case .convert(let markdown, _) = Policy.verdict(for: text) else {
+            Issue.record("expected a conversion")
+            return
+        }
+        #expect(markdown == "The release went out this morning and the update feed now points at the new build, so anyone "
+            + "running the app will see the prompt within a day. Nothing else changed in the packaging, and "
+            + "the Homebrew cask picked up the new version on its own.")
+    }
+
+    @Test func wrappedListItemsFromCodex() {
+        let text = """
+        - Added a quote detector to the converter so a bar down the left edge becomes a real quote
+          instead of a code block in the pasted message.
+        - Rejoined lines that the terminal wrapped at the window width, for prose, list items and
+          quotes alike.
+        """
+        #expect(md(text) == """
+            - Added a quote detector to the converter so a bar down the left edge becomes a real quote instead of a code block in the pasted message.
+            - Rejoined lines that the terminal wrapped at the window width, for prose, list items and quotes alike.
+            """)
+    }
+
+    @Test func deliberateLineBreaksStay() {
+        let notes = [
+            // Short lines are never a wrap.
+            "Lunch at noon works for me.\nSee you there.",
+            // One long line is no evidence of a terminal width.
+            "Here is the plan for tomorrow morning and the follow up we talked about on Friday\nThanks",
+            // A full line that ends a sentence before a capital is ambiguous; keep the break.
+            "The first build finished cleanly and every test passed on the slower CI machines.\n"
+                + "The second build finished cleanly and every test passed on the faster machines.",
+        ]
+        for text in notes {
+            #expect(md(text) == text)
+        }
+    }
+
+    @Test func commandsAfterProseStayOnTheirOwnLine() {
+        let text = """
+        Run this from the repository root once the branch is up to date with main and the tests pass
+        git push origin HEAD --force-with-lease
+        """
+        #expect(md(text).contains("```bash\ngit push"))
+    }
+}
+
 /// Hostile clips must stay fast: the converter runs on the main thread.
 /// Bounds are generous for debug builds and slow CI machines.
 @Suite struct Performance {

@@ -81,6 +81,8 @@ ClipDown uses fast, predictable heuristics. No AI model, and your clipboard neve
 | `"quoted commands"` and `Install: brew install --cask foo` | `inline code` |
 | Shell prompts (`$ `, `PS C:\>`), command lines, JSON, HTML source, indented runs | code blocks |
 | Box-drawing tables (`┌──┬──┐`) | a code block, so the columns stay lined up |
+| The `│` bar Claude Code and Codex draw beside a quote | a real quote |
+| Lines the terminal hard-wrapped at the window width | paragraphs that flow again |
 | Short ALL-CAPS lines | headings, when the clip also has code |
 | `-`, `*`, `•` and `1.` lines | lists, when the clip also has code |
 | Markdown already in the text (`**bold**`, backticks, fences, tables) | rendered |
