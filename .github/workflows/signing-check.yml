@@ -1,0 +1,38 @@
+name: Signing check
+
+# Manual diagnostic: imports the Developer ID secret into a throwaway keychain
+# and lists what it contains (certificate names and validity only).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: macos-26
+    steps:
+      - name: Inspect the Developer ID secret
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PASSWORD="${CERTIFICATE_PASSWORD:-}"
+          P12="$RUNNER_TEMP/check.p12"
+          KC="$RUNNER_TEMP/check.keychain-db"
+          KCPW="$(openssl rand -hex 32)"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$P12"
+          echo "p12 bytes: $(wc -c < "$P12")"
+          echo "--- certificate subjects in the p12:"
+          openssl pkcs12 -in "$P12" -nokeys -passin "pass:$CERTIFICATE_PASSWORD" 2>&1 | grep -E "subject=|issuer=|error" || true
+          echo "--- private keys in the p12: $(openssl pkcs12 -in "$P12" -nocerts -nodes -passin "pass:$CERTIFICATE_PASSWORD" 2>/dev/null | grep -c 'BEGIN PRIVATE KEY' || true)"
+          security create-keychain -p "$KCPW" "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          security import "$P12" -k "$KC" -P "$CERTIFICATE_PASSWORD" -A -f pkcs12 >/dev/null
+          echo "--- all identities (valid or not):"
+          security find-identity -p codesigning "$KC" || true
+          echo "--- valid identities:"
+          security find-identity -v -p codesigning "$KC" || true
+          security delete-keychain "$KC"
