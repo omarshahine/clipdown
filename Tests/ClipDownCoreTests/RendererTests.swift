@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ClipDownCore
 
@@ -82,5 +83,34 @@ import Testing
     @Test func clipboardHTMLCannotBecomeMarkup() {
         let html = Renderer.html("<script>alert(1)</script> [x](javascript:alert(1)) <img src=x onerror=y>")
         #expect(!html.contains("<script") && !html.contains("<img") && !html.contains("href=\"javascript"))
+    }
+}
+
+/// Regressions from the second Clawpatch pass (2026-10-25).
+@Suite struct SecondPassRegressions {
+    @Test func placeholdersNeverLandInsideAnAttribute() {
+        let html = Renderer.html("https://evil.example/[x](https://b.example/\" onmouseover=\"alert(1))")
+        // Every href value must be free of markup.
+        let hrefs = html.components(separatedBy: "href=\"").dropFirst().map { $0.prefix { $0 != "\"" } }
+        #expect(!hrefs.isEmpty)
+        for href in hrefs { #expect(!href.contains("<") && !href.contains(">")) }
+        #expect(!html.contains("onmouseover=\""))
+    }
+
+    @Test func clawpatchInjectionReproduction() {
+        let html = Renderer.html("https://outer/[x](https://inner/onmouseover=location='//evil'//)")
+        #expect(html == "<p><a href=\"https://outer/\">https://outer/</a><a href=\"https://inner/onmouseover=location='//evil'//\">x</a></p>")
+    }
+
+    @Test func deepQuotesDoNotRecurseWithoutBound() {
+        let html = Renderer.html(String(repeating: ">", count: 20_000) + " deep")
+        #expect(html.components(separatedBy: "<blockquote>").count - 1 == Renderer.maxQuoteDepth)
+    }
+
+    @Test func longBlankRunsStayFast() {
+        let start = Date()
+        _ = Renderer.html("- a\n" + String(repeating: "\n", count: 40_000) + "b")
+        _ = Converter.convert(String(repeating: "\n", count: 40_000) + "Run  npm test  now" + String(repeating: "\n", count: 40_000))
+        #expect(Date().timeIntervalSince(start) < 5)
     }
 }

@@ -157,8 +157,11 @@ public enum Converter {
             while let c = l.last, c == " " || c == "\t" { l.removeLast() }
             return l
         }
-        while lines.first?.isEmpty == true { lines.removeFirst() }
-        while lines.last?.isEmpty == true { lines.removeLast() }
+        // Trim leading and trailing blank lines in one pass each (removeFirst
+        // in a loop is quadratic on a run of blank lines).
+        let firstText = lines.firstIndex { !$0.isEmpty } ?? lines.count
+        let lastText = lines.lastIndex { !$0.isEmpty } ?? -1
+        lines = firstText <= lastText ? Array(lines[firstText...lastText]) : []
         // Terminal output is often indented as a whole; strip the shared indent.
         let indent = lines.filter { !$0.isEmpty }.map(leadingSpaces).min() ?? 0
         if indent > 0 { lines = lines.map { String($0.dropFirst(min(indent, leadingSpaces($0)))) } }

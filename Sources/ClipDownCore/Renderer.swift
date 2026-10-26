@@ -7,8 +7,22 @@ public enum Renderer {
         "<html><head><meta charset=\"utf-8\"></head><body>" + html(markdown) + "</body></html>"
     }
 
+    /// Deeper `>` nesting renders as text, so a run of markers can't recurse
+    /// without bound.
+    static let maxQuoteDepth = 8
+
     public static func html(_ markdown: String) -> String {
+        html(markdown, depth: 0)
+    }
+
+    static func html(_ markdown: String, depth: Int) -> String {
         let lines = markdown.components(separatedBy: "\n")
+        // The next non-blank line after each index, computed once, so runs of
+        // blank lines stay linear.
+        var nextNonblank = [Int](repeating: lines.count, count: lines.count + 1)
+        for k in stride(from: lines.count - 1, through: 0, by: -1) {
+            nextNonblank[k] = lines[k].trimmingCharacters(in: .whitespaces).isEmpty ? nextNonblank[k + 1] : k
+        }
         var out = ""
         var paragraph: [String] = []
         var lists: [(tag: String, indent: Int)] = []
@@ -61,7 +75,8 @@ public enum Renderer {
             if trimmed.isEmpty {
                 flushParagraph()
                 // A list survives blank lines only if another item follows.
-                let next = lines[(i + 1)...].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                let n = nextNonblank[i + 1]
+                let next: String? = n < lines.count ? lines[n] : nil
                 if next.map({ Converter.listItem.firstMatch($0) == nil && !$0.hasPrefix(" ") }) ?? true {
                     closeLists()
                 }
@@ -112,7 +127,7 @@ public enum Renderer {
                 continue
             }
 
-            if trimmed.hasPrefix(">") {
+            if trimmed.hasPrefix(">"), depth < maxQuoteDepth {
                 flushParagraph()
                 var quoted: [String] = []
                 while i < lines.count, lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(">") {
@@ -121,7 +136,7 @@ public enum Renderer {
                     i += 1
                 }
                 spaceIfNeeded()
-                out += "<blockquote>" + html(quoted.joined(separator: "\n")) + "</blockquote>"
+                out += "<blockquote>" + html(quoted.joined(separator: "\n"), depth: depth + 1) + "</blockquote>"
                 continue
             }
 
@@ -183,8 +198,11 @@ public enum Renderer {
     static let codeSpan = Pattern(#"(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)"#)
     /// Bounded, and a label can't contain `[`, so unclosed brackets can't
     /// make this rescan the line from every one of them.
-    static let link = Pattern(#"\[([^\[\]\n]{1,1024})\]\((https?://[^)\s]{1,2048})\)"#)
-    static let bareURL = Pattern(#"\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+    // Neither a link target nor a bare URL may contain a placeholder
+    // delimiter (U+E000 or U+E001): a placeholder restored inside an href
+    // would put markup in an attribute.
+    static let link = Pattern("\\[([^\\[\\]\\n]{1,1024})\\]\\((https?://[^)\\s\u{E000}\u{E001}]{1,2048})\\)")
+    static let bareURL = Pattern("\\bhttps?://[^\\s<>()\u{E000}\u{E001}]+[^\\s<>().,;:!?'\"\u{E000}\u{E001}]")
     static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
     static let italic = Pattern(#"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#)
 
