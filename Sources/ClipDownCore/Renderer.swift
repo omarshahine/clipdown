@@ -53,15 +53,15 @@ public enum Renderer {
             let line = lines[i]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            if trimmed.hasPrefix("```") {
+            if let run = Fence.opening(line) {
                 flushParagraph()
                 closeLists()
                 // Only plain language names reach the class attribute.
-                let lang = String(trimmed.dropFirst(3).prefix { !$0.isWhitespace }
+                let lang = String(trimmed.dropFirst(run).prefix { !$0.isWhitespace }
                     .filter { $0.isLetter || $0.isNumber || "+-_#.".contains($0) })
                 var body: [String] = []
                 i += 1
-                while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                while i < lines.count, !Fence.closes(lines[i], opened: run) {
                     body.append(lines[i])
                     i += 1
                 }
@@ -88,7 +88,11 @@ public enum Renderer {
             if let m = Converter.listItem.firstMatch(line) {
                 flushParagraph()
                 let indent = (m[1] ?? "").count
-                let tag = (m[2] ?? "-").first!.isNumber ? "ol" : "ul"
+                let marker = m[2] ?? "-"
+                let tag = marker.first!.isNumber ? "ol" : "ul"
+                // An ordered list keeps the number it starts at.
+                let start = Int(marker.dropLast()).flatMap { $0 != 1 ? " start=\"\($0)\"" : nil } ?? ""
+                let openTag = tag == "ol" ? "<ol\(start)>" : "<ul>"
                 closeLists(above: indent)
                 // Items of a list already open stay tight, even across blank lines.
                 if lists.isEmpty { spaceIfNeeded() } else { blankPending = false }
@@ -98,11 +102,11 @@ public enum Renderer {
                     } else {
                         out += "</li></\(top.tag)>"
                         lists.removeLast()
-                        out += "<\(tag)>"
+                        out += openTag
                         lists.append((tag, indent))
                     }
                 } else {
-                    out += "<\(tag)>"
+                    out += openTag
                     lists.append((tag, indent))
                 }
                 out += "<li>" + inline(m[3] ?? "")
@@ -201,8 +205,10 @@ public enum Renderer {
     // Neither a link target nor a bare URL may contain a placeholder
     // delimiter (U+E000 or U+E001): a placeholder restored inside an href
     // would put markup in an attribute.
-    static let link = Pattern("\\[([^\\[\\]\\n]{1,1024})\\]\\((https?://[^)\\s\u{E000}\u{E001}]{1,2048})\\)")
-    static let bareURL = Pattern("\\bhttps?://[^\\s<>()\u{E000}\u{E001}]+[^\\s<>().,;:!?'\"\u{E000}\u{E001}]")
+    static let link = Pattern("\\[([^\\[\\]\\n]{1,1024})\\]\\((https?://(?:[^()\\s\u{E000}\u{E001}]|\\([^()\\s\u{E000}\u{E001}]{0,256}\\)){1,2048})\\)")
+    /// A URL may contain one level of balanced parentheses, as Wikipedia
+    /// links do, but never ends on unbalanced punctuation.
+    static let bareURL = Pattern("\\bhttps?://(?:[^\\s<>()\u{E000}\u{E001}]|\\([^\\s<>()\u{E000}\u{E001}]{0,256}\\))+(?<=[^\\s<>().,;:!?'\"\u{E000}\u{E001}]|\\))")
     static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
     static let italic = Pattern(#"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#)
 

@@ -100,7 +100,7 @@ case "--convert-now":
     let ok = ClipboardEngine().convertNow(as: args.contains("--markdown") ? .markdown : .richText)
     print(ok ? "converted" : "left alone")
 case "--unregister-login-item":
-    LoginItem.set(false)
+    if let error = LoginItem.set(false) { fail("couldn't remove the login item: \(error)") }
 case "-h", "--help", "help":
     print(usage)
 default:

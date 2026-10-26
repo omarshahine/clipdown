@@ -164,7 +164,16 @@ final class ClipboardEngine: ObservableObject {
         // Record the generation this write created, not whatever is live
         // afterwards, so a copy landing right after still gets processed.
         lastChangeCount = pasteboard.clearContents()
-        pasteboard.writeObjects([item])
+        guard pasteboard.writeObjects([item]) else {
+            log.error("couldn't write the converted clip to the pasteboard")
+            return false
+        }
         return true
+    }
+
+    /// Puts the original text back before ClipDown quits, so a Markdown or
+    /// rich-text shape never outlives the app that made it.
+    func restoreOriginal() {
+        reshape(for: nil)
     }
 }

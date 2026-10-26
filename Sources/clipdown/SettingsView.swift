@@ -352,10 +352,16 @@ struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear {
-            openAtLogin = LoginItem.isEnabled
-            loginNote = loginStatusNote
+        .onAppear(perform: refreshLoginItem)
+        // Coming back from System Settings, where approval happens.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLoginItem()
         }
+    }
+
+    private func refreshLoginItem() {
+        openAtLogin = LoginItem.isEnabled
+        loginNote = loginStatusNote
     }
 
     private var loginStatusNote: String? {

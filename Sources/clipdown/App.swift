@@ -57,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { AppModel.shared.engine.restoreOriginal() }
+    }
+
     /// Opening the app again (Finder, Spotlight, `open -a ClipDown`) shows Settings.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainActor.assumeIsolated { AppModel.shared.showSettings() }

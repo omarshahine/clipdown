@@ -102,10 +102,22 @@ public enum SettingsStore {
     /// the CLI, so two edits can't interleave and drop one another.
     @discardableResult
     public static func edit(_ change: (inout Settings) -> Void) -> Settings {
-        let lockURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("\(testDomain ?? domain).lock")
-        let fd = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
-        if fd >= 0 { flock(fd, LOCK_EX) }
+        // Caches first, the temp folder if Caches isn't writable. If neither
+        // can be opened the edit still happens, unlocked, rather than being
+        // silently dropped.
+        let name = "\(testDomain ?? domain).lock"
+        let candidates = [
+            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+            URL(fileURLWithPath: NSTemporaryDirectory()),
+        ].compactMap { $0?.appendingPathComponent(name).path }
+        var fd: Int32 = -1
+        for path in candidates where fd < 0 {
+            fd = open(path, O_CREAT | O_RDWR, 0o600)
+        }
+        if fd >= 0, flock(fd, LOCK_EX) != 0 {
+            close(fd)
+            fd = -1
+        }
         defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
         var settings = load()
         change(&settings)

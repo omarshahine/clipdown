@@ -114,3 +114,35 @@ import Testing
         #expect(Date().timeIntervalSince(start) < 5)
     }
 }
+
+@Suite struct FenceAndURLRegressions {
+    @Test func longerFencesHoldShorterOnes() {
+        let md = "````\n```\ninner\n```\n````"
+        #expect(Renderer.html(md) == "<pre><code>```\ninner\n```</code></pre>")
+        #expect(Converter.convert("Use this:\n\n" + md + "\n\nthen --go").markdown.contains(md))
+    }
+
+    @Test func generatedFencesOutlastTheirContent() {
+        // An indented block that contains a fence line gets a longer fence.
+        let out = Converter.convert("Steps:\n\n    ```\n    echo hi\n    ```").markdown
+        #expect(out.contains("````\n```\necho hi\n```\n````"))
+    }
+
+    @Test func inlineCodeOutlastsEmbeddedBackticks() {
+        #expect(Fence.inlineCode("a``b") == "``` a``b ```")
+        #expect(Fence.inlineCode("plain") == "`plain`")
+        #expect(Renderer.html(Fence.inlineCode("a``b")) == "<p><code>a``b</code></p>")
+    }
+
+    @Test func orderedListsKeepTheirStart() {
+        #expect(Renderer.html("3. three\n4. four") == "<ol start=\"3\"><li>three</li><li>four</li></ol>")
+        #expect(Renderer.html("1. one") == "<ol><li>one</li></ol>")
+    }
+
+    @Test func urlsKeepBalancedParentheses() {
+        let url = "https://en.wikipedia.org/wiki/Foo_(bar)"
+        #expect(Renderer.html("See \(url).") == "<p>See <a href=\"\(url)\">\(url)</a>.</p>")
+        #expect(Renderer.html("[w](\(url))") == "<p><a href=\"\(url)\">w</a></p>")
+        #expect(Converter.convert("See \(url) and --flag").markdown == "See \(url) and `--flag`")
+    }
+}

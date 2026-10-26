@@ -11,7 +11,7 @@ APP="$HOME/Applications/ClipDown.app"
 TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
 VERSION=${TAG#v}
 [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || VERSION=0.0.0
-BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+BUILD=$(git rev-list --count HEAD 2>/dev/null) || BUILD=1
 DESCRIBE=$(git describe --tags --always --dirty 2>/dev/null || echo unknown)
 
 swift build -c release

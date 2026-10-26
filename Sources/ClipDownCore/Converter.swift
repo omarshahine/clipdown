@@ -19,9 +19,10 @@ public enum Converter {
 
         func emitBlock(_ body: [String], lang: String) {
             if let last = out.last, !last.isEmpty { out.append("") }
-            out.append("```" + lang)
+            let fence = Fence.delimiter(for: body)
+            out.append(fence + lang)
             out.append(contentsOf: body)
-            out.append("```")
+            out.append(fence)
             signals += 2
             inList = false
         }
@@ -30,13 +31,13 @@ public enum Converter {
             let line = lines[i]
 
             // Existing fenced code: keep verbatim.
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            if let run = Fence.opening(line) {
                 out.append(line)
                 i += 1
                 while i < lines.count {
                     out.append(lines[i])
                     i += 1
-                    if out.last!.trimmingCharacters(in: .whitespaces).hasPrefix("```") { break }
+                    if Fence.closes(out.last!, opened: run) { break }
                 }
                 signals += 2
                 continue
@@ -146,12 +147,12 @@ public enum Converter {
             .components(separatedBy: "\n")
         // Terminals pad lines to the window width, so trailing whitespace goes,
         // except inside an existing code fence where it can be meaningful.
-        var inFence = false
+        var fence: Int?
         lines = lines.map { line -> String in
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-            } else if inFence {
-                return line
+            if let open = fence {
+                if Fence.closes(line, opened: open) { fence = nil } else { return line }
+            } else if let open = Fence.opening(line) {
+                fence = open
             }
             var l = line
             while let c = l.last, c == " " || c == "\t" { l.removeLast() }
@@ -241,7 +242,7 @@ public enum Converter {
 
     /// Spans that must not be rewritten: existing code spans (any number of
     /// backticks), Markdown links and images (label and target), and URLs.
-    static let protected = Pattern(#"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+    static let protected = Pattern(#"(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)|\bhttps?://(?:[^\s<>()]|\([^\s<>()]{0,256}\))+(?<=[^\s<>().,;:!?'"]|\))"#)
 
     /// Ranges of Markdown links and images, `[label](target)` and
     /// `![alt](target)`. Scanned rather than matched, because a target can
@@ -317,9 +318,7 @@ public enum Converter {
         "watchOS", "tvOS", "visionOS", "eBay", "eSIM", "eShop", "iPhones", "iPads", "macBook", "vNext",
     ]
 
-    static func code(_ s: String) -> String {
-        s.contains("`") ? "`` " + s + " ``" : "`" + s + "`"
-    }
+    static func code(_ s: String) -> String { Fence.inlineCode(s) }
 
     /// Applies `rule` only to the parts of `line` outside protected spans.
     static func outsideProtected(_ line: String, _ rule: (String) -> (String, Int)) -> (String, Int) {
