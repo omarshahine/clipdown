@@ -47,7 +47,7 @@ ditto "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 if ! otool -l "$APP/Contents/MacOS/clipdown" | grep -Fq '@executable_path/../Frameworks'; then
     install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP/Contents/MacOS/clipdown"
 fi
-for f in Resources/MenuBarIcon*.png; do
+for f in Resources/MenuBarIcon*.png Resources/Omar.jpg; do
     if [ -e "$f" ]; then ditto "$f" "$APP/Contents/Resources/$(basename "$f")"; fi
 done
 

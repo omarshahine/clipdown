@@ -101,6 +101,7 @@ Not sure what it'll do? The **Preview** tab in Settings shows the result for any
 
 - Your clipboard never leaves your Mac. No analytics, no AI service.
 - The only network request is the daily update check, which fetches a release feed from GitHub. Sparkle sends no system profile, and you can turn checks off in Settings.
+- Starring ClipDown from the menu or Settings goes through your GitHub CLI (`gh`) if it's installed and signed in, and opens GitHub in your browser otherwise. ClipDown also asks `gh` whether you've already starred, so it can say so. Nothing runs if you don't have `gh`.
 - Reads the clipboard only while an app in your list is in front, and only after the clipboard's type list says it's plain text.
 - Skips anything marked concealed or transient (the [nspasteboard.org](http://nspasteboard.org) conventions password managers use).
 

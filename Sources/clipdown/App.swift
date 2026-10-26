@@ -1,4 +1,5 @@
 import ClipDownCore
+import Combine
 import ServiceManagement
 import SwiftUI
 
@@ -8,22 +9,128 @@ final class AppModel {
     let engine = ClipboardEngine()
     let updates = Updates()
     private var settingsWindow: NSWindow?
+    private var conversions: AnyCancellable?
 
-    func showSettings() {
+    init() {
+        conversions = engine.$lastConversion.compactMap { $0 }.sink { _ in StarAsk.shared.recordConversion() }
+    }
+
+    /// `activate: false` shows the window without pulling focus from the app
+    /// you're working in.
+    func showSettings(activate: Bool = true) {
         if settingsWindow == nil {
-            let window = NSWindow(contentViewController: NSHostingController(
-                rootView: SettingsView().environmentObject(engine).environmentObject(updates)))
-            window.title = "ClipDown"
+            let tabs = SettingsTabs(engine: engine, updates: updates)
+            let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable, .miniaturizable]
+            window.toolbarStyle = .preference
             window.isReleasedWhenClosed = false
             window.center()
             window.setFrameAutosaveName("Settings")
             settingsWindow = window
         }
+        (settingsWindow?.contentViewController as? SettingsTabs)?.selectSavedTab()
+        guard activate else {
+            settingsWindow?.orderFrontRegardless()
+            return
+        }
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
         // Don't let the Preview editor grab keystrokes meant for another app.
         settingsWindow?.makeFirstResponder(nil)
+    }
+}
+
+/// The GitHub star ask: a button that's always in the menu and Settings, plus
+/// a one-time note in Settings > General after a few conversions. Stars
+/// in place through the GitHub CLI when it's signed in, like Orca does, and
+/// opens the repo in the browser otherwise.
+@MainActor
+final class StarAsk: ObservableObject {
+    static let shared = StarAsk()
+    static let repo = "omarshahine/clipdown"
+    static let url = URL(string: "https://github.com/\(repo)")!
+    /// Conversions before the one-time ask.
+    static let threshold = 5
+    static let countKey = "conversionCount"
+    static let askedKey = "starAsked"
+    /// Set while the note is showing in Settings > General.
+    static let pendingKey = "starAskPending"
+
+    @Published private(set) var starred = false
+    /// Bumped by every star action, so a status check that started earlier
+    /// can't overwrite the result or bring the ask back.
+    private var generation = 0
+
+    func refresh() async {
+        let started = generation
+        let result = await GitHubCLI.run(["api", "user/starred/\(Self.repo)"]) == 0
+        guard started == generation else { return }
+        starred = result
+    }
+
+    func recordConversion() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.askedKey) else { return }
+        let count = defaults.integer(forKey: Self.countKey) + 1
+        defaults.set(count, forKey: Self.countKey)
+        guard count >= Self.threshold else { return }
+        defaults.set(true, forKey: Self.askedKey)
+        Task {
+            // Already a stargazer, or starred while we checked: nothing to ask.
+            let started = generation
+            await refresh()
+            guard started == generation, !starred else { return }
+            defaults.set(true, forKey: Self.pendingKey)
+            defaults.set("general", forKey: SettingsTabs.tabKey)
+            AppModel.shared.showSettings(activate: false)
+        }
+    }
+
+    func star() {
+        let defaults = UserDefaults.standard
+        // Starred already, or chose to: never ask.
+        defaults.set(true, forKey: Self.askedKey)
+        defaults.set(false, forKey: Self.pendingKey)
+        generation += 1
+        Task {
+            let ok = await GitHubCLI.run(["api", "-X", "PUT", "user/starred/\(Self.repo)"]) == 0
+            // Checks that started while the star was in flight are stale too.
+            generation += 1
+            if ok {
+                starred = true
+            } else {
+                NSWorkspace.shared.open(Self.url)
+            }
+        }
+    }
+}
+
+/// The GitHub CLI, if it's installed where Homebrew puts it. Apps launched
+/// from Finder don't get the shell's PATH, so look in the usual places.
+enum GitHubCLI {
+    static let path = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// Runs gh and returns its exit status, or nil when gh is missing or
+    /// takes longer than 15 seconds.
+    static func run(_ arguments: [String]) async -> Int32? {
+        guard let path else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { continuation.resume(returning: $0.terminationReason == .exit ? $0.terminationStatus : nil) }
+            do { try process.run() } catch {
+                process.terminationHandler = nil
+                continuation.resume(returning: nil)
+                return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+                if process.isRunning { process.terminate() }
+            }
+        }
     }
 }
 
@@ -102,6 +209,7 @@ enum MenuBarIcon {
 
 struct MenuContent: View {
     @EnvironmentObject private var engine: ClipboardEngine
+    @ObservedObject private var stars = StarAsk.shared
 
     var body: some View {
         Toggle("ClipDown Is On", isOn: Binding(
@@ -127,6 +235,9 @@ struct MenuContent: View {
         }
         Button("Settings…") { AppModel.shared.showSettings() }
             .keyboardShortcut(",")
+        if !stars.starred {
+            Button("Star ClipDown on GitHub") { stars.star() }
+        }
         Divider()
         Button("Quit ClipDown") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
