@@ -45,3 +45,37 @@ import Testing
         #expect(Renderer.htmlDocument("x").contains("<meta charset=\"utf-8\">"))
     }
 }
+
+/// Regressions from the Clawpatch review and security audit (2026-10-25).
+@Suite struct RendererRegressions {
+    @Test func codeInsideLinkLabels() {
+        #expect(Renderer.html("[`README.md`](https://example.com)")
+            == "<p><a href=\"https://example.com\"><code>README.md</code></a></p>")
+        let html = Policy.html(for: "See [config.json](https://example.com) for --verbose") ?? ""
+        #expect(html.contains(">config.json</a>"))
+        #expect(!html.contains("\u{E000}") && !html.contains("\u{1}"))
+    }
+
+    @Test func forgedPlaceholdersCannotCrash() {
+        for input in ["\u{1}0\u{2}", "\u{E000}0\u{E001}", "\u{E000}999\u{E001} `x`", "\u{E000}99999999999999999999\u{E001}"] {
+            let html = Renderer.html(input)
+            #expect(!html.contains("\u{E000}"))
+        }
+        #expect(Policy.html(for: "Use --verbose \u{1}999\u{2}") != nil)
+    }
+
+    @Test func escapedPipesStayInTheirCell() {
+        #expect(Renderer.html("| a | b |\n|---|---|\n| x\\|y | z |")
+            == "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>x|y</td><td>z</td></tr></tbody></table>")
+    }
+
+    @Test func fenceLanguageIsSanitized() {
+        let html = Renderer.html("```bash\" onmouseover=\"alert(1)\necho hi\n```")
+        #expect(html == "<pre><code class=\"language-bash\">echo hi</code></pre>")
+    }
+
+    @Test func clipboardHTMLCannotBecomeMarkup() {
+        let html = Renderer.html("<script>alert(1)</script> [x](javascript:alert(1)) <img src=x onerror=y>")
+        #expect(!html.contains("<script") && !html.contains("<img") && !html.contains("href=\"javascript"))
+    }
+}

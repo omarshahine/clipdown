@@ -42,7 +42,9 @@ public enum Renderer {
             if trimmed.hasPrefix("```") {
                 flushParagraph()
                 closeLists()
-                let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                // Only plain language names reach the class attribute.
+                let lang = String(trimmed.dropFirst(3).prefix { !$0.isWhitespace }
+                    .filter { $0.isLetter || $0.isNumber || "+-_#.".contains($0) })
                 var body: [String] = []
                 i += 1
                 while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
@@ -151,7 +153,23 @@ public enum Renderer {
         var t = row.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("|") { t.removeFirst() }
         if t.hasSuffix("|") { t.removeLast() }
-        return t.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Split on unescaped pipes only; `\|` is a literal pipe inside a cell.
+        var cells = [""]
+        var escaped = false
+        for c in t {
+            if escaped {
+                cells[cells.count - 1].append(c == "|" ? "|" : "\\\(c)")
+                escaped = false
+            } else if c == "\\" {
+                escaped = true
+            } else if c == "|" {
+                cells.append("")
+            } else {
+                cells[cells.count - 1].append(c)
+            }
+        }
+        if escaped { cells[cells.count - 1].append("\\") }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     static func escape(_ s: String) -> String {
@@ -167,14 +185,19 @@ public enum Renderer {
     static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
     static let italic = Pattern(#"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])"#)
 
+    /// Placeholder delimiters, from the Unicode private use area. Any copies
+    /// in the input are dropped first, so clipboard text can't forge one.
+    static let open: Character = "\u{E000}", close: Character = "\u{E001}"
+    static let placeholder = Pattern("\u{E000}(\\d{1,6})\u{E001}")
+
     static func inline(_ text: String) -> String {
         // Code spans and links are swapped for placeholders so later passes can't touch them.
         var stash: [String] = []
         func hold(_ html: String) -> String {
             stash.append(html)
-            return "\u{1}\(stash.count - 1)\u{2}"
+            return "\(open)\(stash.count - 1)\(close)"
         }
-        var s = codeSpan.replace(text) { g in hold("<code>" + escape(g[1] ?? g[2] ?? "") + "</code>") }.0
+        var s = codeSpan.replace(text.filter { $0 != open && $0 != close }) { g in hold("<code>" + escape(g[1] ?? g[2] ?? "") + "</code>") }.0
         s = link.replace(s) { g in
             hold("<a href=\"\(escape(g[2] ?? ""))\">" + escape(g[1] ?? "") + "</a>")
         }.0
@@ -185,6 +208,14 @@ public enum Renderer {
         s = escape(s)
         s = bold.replace(s) { g in "<strong>" + (g[1] ?? "") + "</strong>" }.0
         s = italic.replace(s) { g in "<em>" + (g[1] ?? "") + "</em>" }.0
-        return Pattern("\u{1}(\\d+)\u{2}").replace(s) { g in stash[Int(g[1]!)!] }.0
+        // A link label can hold a code span, so resolve until nothing is left.
+        for _ in 0..<4 {
+            let (next, n) = placeholder.replace(s) { g in
+                g[1].flatMap(Int.init).flatMap { stash.indices.contains($0) ? stash[$0] : nil }
+            }
+            s = next
+            if n == 0 { break }
+        }
+        return s
     }
 }

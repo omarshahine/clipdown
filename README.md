@@ -23,8 +23,8 @@ It just works. No hotkey, no extra step.
 
 1. **You copy as usual.** From Claude Code, Ghostty, Terminal, iTerm, a log file, anywhere.
 2. **You switch to an app in your list.** ClipDown checks the clipboard. Plain prose is left alone. Technical text gets reshaped for that app:
-   - **Rich text** apps (Teams, Outlook, Slack, Mail) get real inline code, code blocks, lists and headings.
-   - **Markdown** apps (Obsidian, Notion, Bear) get clean Markdown source instead.
+   - **Rich text** apps (Teams, Outlook, Mail, Notes) get real inline code, code blocks, lists and headings.
+   - **Markdown** apps (Slack, Obsidian, Notion, Discord) get clean Markdown source instead, and format it themselves.
 3. **Every other app gets your original text back.** Switch to your editor or terminal and the clipboard is exactly what you copied. ClipDown never leaves a surprise behind.
 
 ## Install
@@ -45,7 +45,7 @@ To remove it: `scripts/uninstall.sh`.
 
 ## Pick your apps
 
-ClipDown starts with Microsoft Teams. Open **Settings** from the menu bar icon to add more. Pick from suggestions, any running app, or any app on disk, and choose **Rich text** or **Markdown** for each one.
+ClipDown starts with Microsoft Teams. Open **Settings** from the menu bar icon to add more. Pick from suggestions (Slack, Outlook, Mail, Notes, Word, Obsidian, Notion, Bear, Discord, Linear, Claude, ChatGPT), any running app, or any app on disk, and choose **Rich text** or **Markdown** for each one.
 
 ![The Apps tab: each app with its own output format](docs/apps.png)
 
@@ -53,8 +53,8 @@ Prefer the terminal? Same settings, same file:
 
 ```bash
 clipdown targets                          # what ClipDown converts for
-clipdown add com.tinyspeck.slackmacgap    # Slack, rich text
-clipdown add md.obsidian --markdown       # Obsidian, Markdown
+clipdown add com.tinyspeck.slackmacgap    # Slack (suggested format: Markdown)
+clipdown add com.apple.mail --rich-text   # Mail, rich text
 clipdown remove com.apple.mail
 clipdown disable                          # or enable
 ```
@@ -73,8 +73,8 @@ ClipDown uses fast, predictable heuristics. No AI model, no network, nothing lea
 | `"quoted commands"` and `Install: brew install --cask foo` | `inline code` |
 | Shell prompts (`$ `, `PS C:\>`), command lines, JSON, HTML source, indented runs | code blocks |
 | Box-drawing tables (`┌──┬──┐`) | a code block, so the columns stay lined up |
-| Short ALL-CAPS lines | headings |
-| `-`, `*`, `•` and `1.` lines | lists |
+| Short ALL-CAPS lines | headings, when the clip also has code |
+| `-`, `*`, `•` and `1.` lines | lists, when the clip also has code |
 | Markdown already in the text (`**bold**`, backticks, fences, tables) | rendered |
 
 And it deliberately leaves these alone:

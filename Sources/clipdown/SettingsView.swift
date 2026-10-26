@@ -1,4 +1,5 @@
 import ClipDownCore
+import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -42,8 +43,8 @@ struct AppsTab: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Label("**Rich text** pastes real inline code, code blocks, lists and headings. Best for Teams, Outlook, Slack and Mail.", systemImage: "textformat")
-                Label("**Markdown** pastes Markdown source. Best for Obsidian, Notion, Bear and GitHub.", systemImage: "number")
+                Label("**Rich text** pastes real inline code, code blocks, lists and headings. Best for Teams, Outlook, Mail and Notes.", systemImage: "textformat")
+                Label("**Markdown** pastes Markdown source. Best for Slack, Obsidian, Notion and Discord.", systemImage: "number")
             }
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -175,8 +176,10 @@ struct PreviewTab: View {
     @State private var mode = Mode.rendered
 
     var body: some View {
-        let result = Converter.convert(input)
-        let converts = Policy.markdown(for: input) != nil
+        // The same decision the clipboard gets, so the preview never shows a
+        // conversion that wouldn't happen (and never converts a huge clip).
+        let verdict = Policy.verdict(for: input)
+        let markdown: String? = if case .convert(let md, _) = verdict { md } else { nil }
 
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -203,11 +206,11 @@ struct PreviewTab: View {
                 .labelsHidden()
                 .fixedSize()
                 Spacer()
-                if converts {
-                    Label("Converts (\(result.signals) signals)", systemImage: "checkmark.circle.fill")
+                if case .convert(_, let signals) = verdict {
+                    Label("Converts (\(signals) signals)", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else {
-                    Label("Left alone: reads like prose", systemImage: "minus.circle")
+                    Label(verdict.reason, systemImage: "minus.circle")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -217,11 +220,16 @@ struct PreviewTab: View {
                 Group {
                     switch mode {
                     case .rendered:
-                        Text(PreviewTab.rendered(Renderer.htmlDocument(result.markdown)))
+                        if let markdown {
+                            Text(PreviewTab.rendered(Renderer.htmlDocument(markdown)))
+                        } else {
+                            Text(input.prefix(5_000))
+                        }
                     case .markdown:
-                        Text(result.markdown).font(.system(.callout, design: .monospaced))
+                        Text(markdown ?? String(input.prefix(5_000))).font(.system(.callout, design: .monospaced))
                     case .html:
-                        Text(Renderer.html(result.markdown)).font(.system(.caption, design: .monospaced))
+                        Text(markdown.map(Renderer.html) ?? "No HTML: the clip is pasted as is.")
+                            .font(.system(.caption, design: .monospaced))
                     }
                 }
                 .textSelection(.enabled)
@@ -310,6 +318,7 @@ private extension NSColor {
 struct GeneralTab: View {
     @EnvironmentObject private var engine: ClipboardEngine
     @State private var openAtLogin = LoginItem.isEnabled
+    @State private var loginNote: String?
 
     var body: some View {
         Form {
@@ -318,7 +327,19 @@ struct GeneralTab: View {
                     get: { engine.settings.enabled },
                     set: { on in engine.update { $0.enabled = on } }))
                 Toggle("Open ClipDown at login", isOn: $openAtLogin)
-                    .onChange(of: openAtLogin) { _, on in LoginItem.set(on) }
+                    .onChange(of: openAtLogin) { _, on in
+                        guard on != LoginItem.isEnabled else { return }
+                        let error = LoginItem.set(on)
+                        // Show what macOS actually did, not what was asked for.
+                        openAtLogin = LoginItem.isEnabled
+                        loginNote = error.map { "Couldn't change the login item: \($0)" } ?? loginStatusNote
+                    }
+                if let loginNote {
+                    Text(loginNote).font(.callout).foregroundStyle(.secondary)
+                    if LoginItem.status == .requiresApproval {
+                        Button("Open Login Items Settings") { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
             }
             Section("Privacy") {
                 Text("ClipDown runs entirely on your Mac and never touches the network. It reads the clipboard only while an app in your list is in front, and only when the clip is plain text.")
@@ -331,6 +352,14 @@ struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear { openAtLogin = LoginItem.isEnabled }
+        .onAppear {
+            openAtLogin = LoginItem.isEnabled
+            loginNote = loginStatusNote
+        }
+    }
+
+    private var loginStatusNote: String? {
+        LoginItem.status == .requiresApproval
+            ? "macOS needs your approval in System Settings > General > Login Items." : nil
     }
 }

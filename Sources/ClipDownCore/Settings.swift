@@ -44,15 +44,24 @@ public struct Settings: Codable, Equatable, Sendable {
         return targets.first { $0.bundleID == bundleID && $0.enabled }
     }
 
-    /// Offered in the Add App menu. Formats are each app's best paste experience.
+    /// Offered in the Add App menu. Formats are each app's best paste
+    /// experience: rich text where the composer renders pasted HTML, Markdown
+    /// where it formats pasted Markdown (Slack does both; Markdown keeps its
+    /// own code formatting).
     public static let suggestions: [TargetApp] = [
         TargetApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams", format: .richText),
         TargetApp(bundleID: "com.microsoft.Outlook", name: "Microsoft Outlook", format: .richText),
-        TargetApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", format: .richText),
         TargetApp(bundleID: "com.apple.mail", name: "Mail", format: .richText),
+        TargetApp(bundleID: "com.apple.Notes", name: "Notes", format: .richText),
+        TargetApp(bundleID: "com.microsoft.Word", name: "Microsoft Word", format: .richText),
+        TargetApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", format: .markdown),
+        TargetApp(bundleID: "com.hnc.Discord", name: "Discord", format: .markdown),
         TargetApp(bundleID: "md.obsidian", name: "Obsidian", format: .markdown),
         TargetApp(bundleID: "notion.id", name: "Notion", format: .markdown),
         TargetApp(bundleID: "net.shinyfrog.bear", name: "Bear", format: .markdown),
+        TargetApp(bundleID: "com.linear", name: "Linear", format: .markdown),
+        TargetApp(bundleID: "com.anthropic.claudefordesktop", name: "Claude", format: .markdown),
+        TargetApp(bundleID: "com.openai.chat", name: "ChatGPT", format: .markdown),
     ]
 }
 

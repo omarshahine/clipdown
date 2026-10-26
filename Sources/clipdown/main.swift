@@ -34,12 +34,33 @@ func editSettings(_ change: (inout Settings) -> Void) {
     SettingsStore.save(settings)
 }
 
+/// The value after `flag`, failing if the flag is there without one.
 func value(after flag: String, in args: [String]) -> String? {
-    args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+    guard let i = args.firstIndex(of: flag) else { return nil }
+    guard args.indices.contains(i + 1), !args[i + 1].hasPrefix("--") else { fail("\(flag) needs a value") }
+    return args[i + 1]
 }
 
-// LaunchServices and Xcode may pass -psn_… or -NS… arguments to an app launch.
-let args = Array(CommandLine.arguments.dropFirst()).filter { !$0.hasPrefix("-psn") && !$0.hasPrefix("-NS") }
+/// Drops what LaunchServices and Xcode add to an app launch: -psn_… and
+/// Cocoa defaults overrides such as `-NSDocumentRevisionsDebugMode YES`.
+func userArguments(_ raw: [String]) -> [String] {
+    var out: [String] = []
+    var i = 0
+    while i < raw.count {
+        let a = raw[i]
+        if a.hasPrefix("-psn") {
+            i += 1
+        } else if a.hasPrefix("-NS") || a.hasPrefix("-Apple") {
+            i += 2
+        } else {
+            out.append(a)
+            i += 1
+        }
+    }
+    return out
+}
+
+let args = userArguments(Array(CommandLine.arguments.dropFirst()))
 switch args.first {
 case nil:
     ClipDownApp.main()

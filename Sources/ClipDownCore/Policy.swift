@@ -23,15 +23,39 @@ public enum Policy {
         types.contains("public.utf8-plain-text") && blockingTypes.isDisjoint(with: types)
     }
 
-    /// Returns the Markdown for a clip, or nil to leave the clipboard alone.
-    public static func markdown(for text: String) -> String? {
+    public enum Verdict: Equatable, Sendable {
+        case convert(markdown: String, signals: Int)
+        case empty, tooLarge, singleWord, prose
+
+        /// Why a clip is left alone, for people.
+        public var reason: String {
+            switch self {
+            case .convert: "Converts"
+            case .empty: "Nothing to convert"
+            case .tooLarge: "Left alone: over 50 KB"
+            case .singleWord: "Left alone: a single word or link"
+            case .prose: "Left alone: reads like prose"
+            }
+        }
+    }
+
+    /// Decides what happens to a clip. The size check comes first, so a huge
+    /// clip is never run through the heuristics.
+    public static func verdict(for text: String) -> Verdict {
+        guard text.utf8.count <= maxLength else { return .tooLarge }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, text.utf8.count <= maxLength else { return nil }
+        guard !trimmed.isEmpty else { return .empty }
         // A single word (a URL, a filename) is usually dropped into a sentence,
         // and chat apps build their own previews for links.
-        if !trimmed.contains(where: \.isWhitespace) { return nil }
+        if !trimmed.contains(where: \.isWhitespace) { return .singleWord }
         let result = Converter.convert(text)
-        return result.signals > 0 ? result.markdown : nil
+        return result.signals > 0 ? .convert(markdown: result.markdown, signals: result.signals) : .prose
+    }
+
+    /// Returns the Markdown for a clip, or nil to leave the clipboard alone.
+    public static func markdown(for text: String) -> String? {
+        if case .convert(let markdown, _) = verdict(for: text) { return markdown }
+        return nil
     }
 
     /// Returns the HTML to add, or nil to leave the clipboard alone.

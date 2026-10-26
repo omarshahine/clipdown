@@ -144,12 +144,19 @@ public enum Converter {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .components(separatedBy: "\n")
-            .map { line -> String in
-                // Terminals pad lines to the window width.
-                var l = line
-                while let c = l.last, c == " " || c == "\t" { l.removeLast() }
-                return l
+        // Terminals pad lines to the window width, so trailing whitespace goes,
+        // except inside an existing code fence where it can be meaningful.
+        var inFence = false
+        lines = lines.map { line -> String in
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inFence.toggle()
+            } else if inFence {
+                return line
             }
+            var l = line
+            while let c = l.last, c == " " || c == "\t" { l.removeLast() }
+            return l
+        }
         while lines.first?.isEmpty == true { lines.removeFirst() }
         while lines.last?.isEmpty == true { lines.removeLast() }
         // Terminal output is often indented as a whole; strip the shared indent.
@@ -229,8 +236,9 @@ public enum Converter {
 
     // MARK: - Inline heuristics
 
-    /// Spans that must not be rewritten: existing code spans and URLs.
-    static let protected = Pattern(#"`[^`\n]+`|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
+    /// Spans that must not be rewritten: existing code spans (any number of
+    /// backticks), Markdown links and images (label and target), and URLs.
+    static let protected = Pattern(#"(`+)[^\n]+?\1|!?\[[^\]\n]*\]\([^)\n]*\)|\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
 
     /// Claude Code renders inline code with a padding space on each side, so a
     /// copy leaves `word  code  word` (or `code .` before punctuation).

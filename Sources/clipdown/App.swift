@@ -27,13 +27,18 @@ final class AppModel {
 }
 
 enum LoginItem {
-    static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    static var status: SMAppService.Status { SMAppService.mainApp.status }
+    static var isEnabled: Bool { status == .enabled }
 
-    static func set(_ enabled: Bool) {
+    /// Returns nil on success, or what went wrong for display.
+    @discardableResult
+    static func set(_ enabled: Bool) -> String? {
         do {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            return nil
         } catch {
             log.error("login item \(enabled ? "register" : "unregister") failed: \(error.localizedDescription)")
+            return error.localizedDescription
         }
     }
 }

@@ -174,3 +174,46 @@ private func md(_ text: String) -> String { Converter.convert(text).markdown }
         #expect(Policy.html(for: "~/GitHub/clipdown") == nil)
     }
 }
+
+/// Regressions from the Clawpatch review (2026-10-25).
+@Suite struct ReviewRegressions {
+    @Test func existingLinksAreLeftIntact() {
+        #expect(md("Read [config](config.json) and ![img](scripts/install.sh) now")
+            == "Read [config](config.json) and ![img](scripts/install.sh) now")
+        #expect(md("See [config.json](https://example.com) for --verbose")
+            == "See [config.json](https://example.com) for `--verbose`")
+    }
+
+    @Test func multiBacktickSpansAreProtected() {
+        #expect(md("Use ``a` config.json`` here") == "Use ``a` config.json`` here")
+    }
+
+    @Test func fenceContentKeepsTrailingSpaces() {
+        let text = "```python\ns = \"\"\"a  \nb\"\"\"\n```"
+        #expect(md(text) == text)
+    }
+
+    @Test func verdictsExplainThemselves() {
+        #expect(Policy.verdict(for: String(repeating: "--flag ", count: 10_000)) == .tooLarge)
+        #expect(Policy.verdict(for: "  ") == .empty)
+        #expect(Policy.verdict(for: "config.json") == .singleWord)
+        #expect(Policy.verdict(for: "Lunch at noon?") == .prose)
+        if case .convert(let markdown, let signals) = Policy.verdict(for: "Run  npm test  now") {
+            #expect(markdown == "Run `npm test` now")
+            #expect(signals > 0)
+        } else {
+            Issue.record("expected a conversion")
+        }
+    }
+
+    @Test func listsAndHeadingsAloneStayPlain() {
+        // By design: structure is restored only when the clip also carries code.
+        #expect(Policy.verdict(for: "GROCERIES\n- milk\n- eggs") == .prose)
+    }
+
+    @Test func suggestedFormats() {
+        let slack = Settings.suggestions.first { $0.bundleID == "com.tinyspeck.slackmacgap" }
+        #expect(slack?.format == .markdown)
+        #expect(Set(Settings.suggestions.map(\.bundleID)).count == Settings.suggestions.count)
+    }
+}

@@ -6,15 +6,22 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ID=com.omarshahine.clipdown
 APP="$HOME/Applications/ClipDown.app"
-VERSION=$(git describe --tags --always 2>/dev/null || echo dev)
+# Bundle versions must be numeric: the newest vX.Y.Z tag, and the commit
+# count as the build number. The full git description is kept separately.
+TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+VERSION=${TAG#v}
+[[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || VERSION=0.0.0
+BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+DESCRIBE=$(git describe --tags --always --dirty 2>/dev/null || echo unknown)
+DESCRIBE=${DESCRIBE//\'/}
 
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)/clipdown"
 
-# Quit a running copy before replacing it.
-pgrep -f "ClipDown.app/Contents/MacOS/clipdown" | while read -r pid; do kill "$pid"; done || true
-
-STAGE=$(mktemp -d)/ClipDown.app
+# Stage inside .build (already ignored and reused), so a failed run leaves
+# nothing behind in temp folders.
+STAGE_DIR=.build/stage
+STAGE=$STAGE_DIR/ClipDown.app
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
 cp "$BIN" "$STAGE/Contents/MacOS/clipdown"
 for f in Resources/MenuBarIcon*.png; do [ -e "$f" ] && cp "$f" "$STAGE/Contents/Resources/"; done
@@ -23,34 +30,39 @@ ICON_KEYS=""
 if [ -d Resources/ClipDown.icon ]; then
     xcrun actool "$PWD/Resources/ClipDown.icon" --compile "$STAGE/Contents/Resources" \
         --platform macosx --minimum-deployment-target 15.0 --app-icon ClipDown \
-        --output-partial-info-plist "$(dirname "$STAGE")/icon.plist" >/dev/null
-    ICON_KEYS="<key>CFBundleIconName</key><string>ClipDown</string><key>CFBundleIconFile</key><string>ClipDown</string>"
+        --output-partial-info-plist "$STAGE_DIR/icon.plist" >/dev/null
+    HAS_ICON=1
 fi
 
-cat > "$STAGE/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleIdentifier</key><string>$ID</string>
-    <key>CFBundleName</key><string>ClipDown</string>
-    <key>CFBundleDisplayName</key><string>ClipDown</string>
-    <key>CFBundleExecutable</key><string>clipdown</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>$VERSION</string>
-    <key>LSMinimumSystemVersion</key><string>15.0</string>
-    <key>LSUIElement</key><true/>
-    <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
-    $ICON_KEYS
-</dict>
-</plist>
-EOF
+# PlistBuddy escapes values, so nothing in a tag name can break the XML.
+PLIST="$STAGE/Contents/Info.plist"
+pb() { /usr/libexec/PlistBuddy -c "$1" "$PLIST" >/dev/null; }
+[ -e "$PLIST" ] || pb "Save"
+pb "Clear dict"
+pb "Add :CFBundleIdentifier string $ID"
+pb "Add :CFBundleName string ClipDown"
+pb "Add :CFBundleDisplayName string ClipDown"
+pb "Add :CFBundleExecutable string clipdown"
+pb "Add :CFBundlePackageType string APPL"
+pb "Add :CFBundleShortVersionString string $VERSION"
+pb "Add :CFBundleVersion string $BUILD"
+pb "Add :ClipDownGitDescription string '$DESCRIBE'"
+pb "Add :LSMinimumSystemVersion string 15.0"
+pb "Add :LSUIElement bool true"
+pb "Add :LSApplicationCategoryType string public.app-category.developer-tools"
+if [ "${HAS_ICON:-}" ]; then
+    pb "Add :CFBundleIconName string ClipDown"
+    pb "Add :CFBundleIconFile string ClipDown"
+fi
+plutil -lint "$PLIST" >/dev/null
 
 # Use a Developer ID when there is one, so macOS keeps the clipboard and
 # login-item permissions across rebuilds. Otherwise sign ad hoc.
 IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)
 codesign --force --options runtime --sign "${IDENTITY:--}" "$STAGE"
+
+# Quit a running copy only now, once the new build is ready to drop in.
+pgrep -f "ClipDown.app/Contents/MacOS/clipdown" | while read -r pid; do kill "$pid"; done || true
 
 mkdir -p "$HOME/Applications"
 [ -e "$APP" ] && trash "$APP"
@@ -72,5 +84,5 @@ else
 fi
 
 open "$APP"
-echo "ClipDown $VERSION installed in $APP (signed: ${IDENTITY:-ad hoc})"
+echo "ClipDown $VERSION ($BUILD, $DESCRIBE) installed in $APP (signed: ${IDENTITY:-ad hoc})"
 echo "CLI: $CLI --help"
