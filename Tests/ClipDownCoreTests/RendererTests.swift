@@ -64,6 +64,11 @@ import Testing
         #expect(Policy.html(for: "Use --verbose \u{1}999\u{2}") != nil)
     }
 
+    @Test func codeSpansCloseOnMatchingRuns() {
+        #expect(Renderer.html("``a```b`` and `c`") == "<p><code>a```b</code> and <code>c</code></p>")
+        #expect(Renderer.html("`` `x` ``") == "<p><code>`x`</code></p>")
+    }
+
     @Test func escapedPipesStayInTheirCell() {
         #expect(Renderer.html("| a | b |\n|---|---|\n| x\\|y | z |")
             == "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>x|y</td><td>z</td></tr></tbody></table>")

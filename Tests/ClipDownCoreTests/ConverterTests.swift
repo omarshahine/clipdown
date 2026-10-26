@@ -188,6 +188,7 @@ private func md(_ text: String) -> String { Converter.convert(text).markdown }
 
     @Test func multiBacktickSpansAreProtected() {
         #expect(md("Use ``a` config.json`` here") == "Use ``a` config.json`` here")
+        #expect(md("Use ``a```b` config.json`` here") == "Use ``a```b` config.json`` here")
     }
 
     @Test func fenceContentKeepsTrailingSpaces() {

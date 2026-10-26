@@ -179,7 +179,8 @@ public enum Renderer {
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    static let codeSpan = Pattern(#"``\s?(.+?)\s?``|`([^`\n]+)`"#)
+    /// CommonMark code spans: the closing run is exactly as long as the opening one.
+    static let codeSpan = Pattern(#"(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)"#)
     static let link = Pattern(#"\[([^\]\n]+)\]\((https?://[^)\s]+)\)"#)
     static let bareURL = Pattern(#"\bhttps?://[^\s<>()]+[^\s<>().,;:!?'"]"#)
     static let bold = Pattern(#"\*\*(?=\S)([^*\n]+?)(?<=\S)\*\*"#)
@@ -197,7 +198,14 @@ public enum Renderer {
             stash.append(html)
             return "\(open)\(stash.count - 1)\(close)"
         }
-        var s = codeSpan.replace(text.filter { $0 != open && $0 != close }) { g in hold("<code>" + escape(g[1] ?? g[2] ?? "") + "</code>") }.0
+        var s = codeSpan.replace(text.filter { $0 != open && $0 != close }) { g in
+            var body = g[2] ?? ""
+            // One space of padding on both sides is stripped, so `` `x` `` works.
+            if body.count > 2, body.hasPrefix(" "), body.hasSuffix(" "), body.contains(where: { $0 != " " }) {
+                body = String(body.dropFirst().dropLast())
+            }
+            return hold("<code>" + escape(body) + "</code>")
+        }.0
         s = link.replace(s) { g in
             hold("<a href=\"\(escape(g[2] ?? ""))\">" + escape(g[1] ?? "") + "</a>")
         }.0
