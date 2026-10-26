@@ -13,9 +13,18 @@ public enum Renderer {
         var paragraph: [String] = []
         var lists: [(tag: String, indent: Int)] = []
         var i = 0
+        // Chat apps (Teams) and NSAttributedString ignore paragraph margins,
+        // so a blank line in the source becomes an explicit empty line.
+        var blankPending = false
+
+        func spaceIfNeeded() {
+            if blankPending, !out.isEmpty { out += "<p><br></p>" }
+            blankPending = false
+        }
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
+            spaceIfNeeded()
             out += "<p>" + paragraph.map(inline).joined(separator: "<br>") + "</p>"
             paragraph = []
         }
@@ -42,6 +51,7 @@ public enum Renderer {
                 }
                 i += 1
                 let cls = lang.isEmpty ? "" : " class=\"language-\(escape(lang))\""
+                spaceIfNeeded()
                 out += "<pre><code\(cls)>" + escape(body.joined(separator: "\n")) + "</code></pre>"
                 continue
             }
@@ -53,6 +63,7 @@ public enum Renderer {
                 if next.map({ Converter.listItem.firstMatch($0) == nil && !$0.hasPrefix(" ") }) ?? true {
                     closeLists()
                 }
+                blankPending = true
                 i += 1
                 continue
             }
@@ -62,6 +73,8 @@ public enum Renderer {
                 let indent = (m[1] ?? "").count
                 let tag = (m[2] ?? "-").first!.isNumber ? "ol" : "ul"
                 closeLists(above: indent)
+                // Items of a list already open stay tight, even across blank lines.
+                if lists.isEmpty { spaceIfNeeded() } else { blankPending = false }
                 if let top = lists.last, top.indent == indent {
                     if top.tag == tag {
                         out += "</li>"
@@ -91,6 +104,7 @@ public enum Renderer {
             if let m = heading.firstMatch(line) {
                 flushParagraph()
                 let level = min((m[1] ?? "#").count + 1, 4)
+                spaceIfNeeded()
                 out += "<h\(level)>" + inline(m[2] ?? "") + "</h\(level)>"
                 i += 1
                 continue
@@ -104,12 +118,14 @@ public enum Renderer {
                     quoted.append(String(q.hasPrefix(" ") ? q.dropFirst() : q))
                     i += 1
                 }
+                spaceIfNeeded()
                 out += "<blockquote>" + html(quoted.joined(separator: "\n")) + "</blockquote>"
                 continue
             }
 
             if trimmed.hasPrefix("|"), i + 1 < lines.count, tableRule.matches(lines[i + 1]) {
                 flushParagraph()
+                spaceIfNeeded()
                 out += "<table><thead><tr>" + cells(trimmed).map { "<th>\(inline($0))</th>" }.joined() + "</tr></thead><tbody>"
                 i += 2
                 while i < lines.count, lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("|") {

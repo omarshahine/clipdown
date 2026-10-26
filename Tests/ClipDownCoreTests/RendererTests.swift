@@ -3,7 +3,8 @@ import Testing
 
 @Suite struct RendererTests {
     @Test func paragraphsKeepLineBreaks() {
-        #expect(Renderer.html("one\ntwo\n\nthree") == "<p>one<br>two</p><p>three</p>")
+        #expect(Renderer.html("one\ntwo\n\nthree") == "<p>one<br>two</p><p><br></p><p>three</p>")
+        #expect(Renderer.html("text\n\n```\ncode\n```\nafter") == "<p>text</p><p><br></p><pre><code>code</code></pre><p>after</p>")
     }
 
     @Test func inlineFormatting() {
@@ -30,7 +31,7 @@ import Testing
     }
 
     @Test func listSurvivesBlankLineBetweenItems() {
-        #expect(Renderer.html("- a\n\n- b\n\nafter") == "<ul><li>a</li><li>b</li></ul><p>after</p>")
+        #expect(Renderer.html("- a\n\n- b\n\nafter") == "<ul><li>a</li><li>b</li></ul><p><br></p><p>after</p>")
     }
 
     @Test func headingsQuotesTables() {

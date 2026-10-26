@@ -236,7 +236,7 @@ struct PreviewTab: View {
     static func rendered(_ html: String) -> AttributedString {
         let styled = html.replacingOccurrences(
             of: "<head>",
-            with: "<head><style>body{font:13px -apple-system;color:\(NSColor.labelColor.cssHex)} p,ul,ol,pre{margin:0 0 8px} code,pre{font:12px ui-monospace,Menlo;background-color:rgba(127,127,127,0.16)}</style>")
+            with: "<head><style>body{font:13px -apple-system;color:\(NSColor.labelColor.cssHex)} p,ul,ol,pre{margin:0} code,pre{font:12px ui-monospace,Menlo;background-color:rgba(127,127,127,0.16)}</style>")
         guard let data = styled.data(using: .utf8),
               let ns = try? NSAttributedString(data: data, options: [
                   .documentType: NSAttributedString.DocumentType.html,
