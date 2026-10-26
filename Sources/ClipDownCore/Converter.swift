@@ -19,6 +19,22 @@ public enum Converter {
         // A paragraph that failed the JSON check isn't retried from each of
         // its later lines, which would be quadratic.
         var jsonCheckedThrough = -1
+        let wrapsAt = wrapWidth(lines)
+
+        /// Rejoins `content` with the lines a terminal wrap split off below
+        /// line `i`: those that start with `prefix` and carry on its prose.
+        func unwrap(_ content: String, prefix: String) -> String {
+            guard let wrapsAt else { return content }
+            var joined = content
+            while i + 1 < lines.count, lines[i + 1].hasPrefix(prefix) {
+                let rest = String(lines[i + 1].dropFirst(prefix.count))
+                guard isWrapTail(rest), wrapped(lines[i], before: rest, width: wrapsAt) else { break }
+                joined += " " + rest
+                i += 1
+            }
+            if joined != content { signals += 1 }
+            return joined
+        }
 
         func emitBlock(_ body: [String], lang: String) {
             if let last = out.last, !last.isEmpty { out.append("") }
@@ -117,7 +133,8 @@ public enum Converter {
                 let indent = m[1] ?? ""
                 var marker = m[2] ?? "-"
                 if marker == "•" || marker == "*" || marker == "+" { marker = "-" }
-                let (content, n) = inline(m[3] ?? "")
+                let hanging = String(repeating: " ", count: indent.count + (m[2] ?? "").count + 1)
+                let (content, n) = inline(unwrap(m[3] ?? "", prefix: hanging))
                 signals += n
                 out.append(indent + marker + " " + content)
                 inList = true
@@ -130,9 +147,11 @@ public enum Converter {
                 inList = false
             } else {
                 if existingMarkdownBlock.matches(line) { signals += 1 }
-                let (content, n) = inline(line)
+                var prefix = String(repeating: " ", count: leadingSpaces(line))
+                if line.dropFirst(prefix.count).hasPrefix("> ") { prefix += "> " }
+                let (content, n) = inline(unwrap(String(line.dropFirst(prefix.count)), prefix: prefix))
                 signals += n
-                out.append(content)
+                out.append(prefix + content)
                 if !line.hasPrefix(" ") { inList = false }
             }
             i += 1
@@ -160,6 +179,10 @@ public enum Converter {
             }
             var l = line
             while let c = l.last, c == " " || c == "\t" { l.removeLast() }
+            // Claude Code and Codex draw a block quote as a bar down the left edge.
+            if let m = quoteBar.firstMatch(l), !isBoxLine(m[2] ?? "") {
+                l = (m[1] ?? "") + ">" + (m[2].map { " " + $0 } ?? "")
+            }
             return l
         }
         // Trim leading and trailing blank lines in one pass each (removeFirst
@@ -167,6 +190,11 @@ public enum Converter {
         let firstText = lines.firstIndex { !$0.isEmpty } ?? lines.count
         let lastText = lines.lastIndex { !$0.isEmpty } ?? -1
         lines = firstText <= lastText ? Array(lines[firstText...lastText]) : []
+        // Claude Code marks the start of a reply with a dot; its other lines
+        // are indented to match, so the dot gives way to the same indent.
+        if let first = lines.first, let dot = first.first, "⏺●".contains(dot), first.dropFirst().hasPrefix(" ") {
+            lines[0] = "  " + first.dropFirst(2)
+        }
         // Terminal output is often indented as a whole; strip the shared indent.
         let indent = lines.filter { !$0.isEmpty }.map(leadingSpaces).min() ?? 0
         if indent > 0 { lines = lines.map { String($0.dropFirst(min(indent, leadingSpaces($0)))) } }
@@ -177,10 +205,38 @@ public enum Converter {
         s.prefix { $0 == " " }.count
     }
 
+    // MARK: - Terminal wrapping
+
+    /// The column a terminal wrapped the clip at, or nil when the clip doesn't
+    /// look wrapped: at least two lines must reach close to its widest line.
+    static func wrapWidth(_ lines: [String]) -> Int? {
+        let widths = lines.map(\.count)
+        guard let widest = widths.max(), widest >= 60 else { return nil }
+        // Word wrap leaves the end of a line short by up to a word.
+        let full = widest - max(12, widest / 8)
+        return widths.filter { $0 >= full }.count >= 2 ? full : nil
+    }
+
+    /// Whether `line` was cut by the wrap rather than ended on purpose. A full
+    /// line that ends a sentence only continues into a lowercase word.
+    static func wrapped(_ line: String, before next: String, width: Int) -> Bool {
+        guard line.count >= width else { return false }
+        let ended = line.last.map { ".!?:".contains($0) } ?? false
+        return !ended || next.first?.isLowercase == true
+    }
+
+    /// Whether `line` can be the rest of a wrapped prose line, not a new block.
+    static func isWrapTail(_ line: String) -> Bool {
+        guard let first = line.first, !first.isWhitespace, !"<{[>|#`".contains(first) else { return false }
+        return !isBoxLine(line) && commandLanguage(line) == nil && listItem.firstMatch(line) == nil && !isHeading(line)
+    }
+
     // MARK: - Block detection
 
     static let listItem = Pattern(#"^(\s*)([-*+•]|\d{1,3}[.)])\s+(.*)$"#)
     static let existingMarkdownBlock = Pattern(#"^(#{1,6} |> |\|.*\|$)"#)
+
+    static let quoteBar = Pattern(#"^(\s*)[│┃▎▍▌▏](?: (.*))?$"#)
 
     static func isBoxLine(_ line: String) -> Bool {
         line.unicodeScalars.contains { (0x2500...0x257F).contains($0.value) }
