@@ -24,6 +24,9 @@ jobs:
     steps:
       - name: Check out ClipDown
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          # Full history: the build number is the commit count (see below).
+          fetch-depth: 0
 
       - name: Validate release tag
         shell: bash
@@ -86,7 +89,9 @@ jobs:
         shell: bash
         env:
           APP_VERSION: ${{ env.VERSION }}
-          BUILD_NUMBER: ${{ github.run_number }}
+          # BUILD_NUMBER is left to build-app.sh, which uses the commit count
+          # as local builds do. A separate counter here numbered releases below
+          # every source build, so Sparkle never offered those an update.
           OUTPUT_DIR: dist
         run: ./scripts/build-app.sh
 
