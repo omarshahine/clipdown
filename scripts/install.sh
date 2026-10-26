@@ -13,7 +13,6 @@ VERSION=${TAG#v}
 [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || VERSION=0.0.0
 BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 DESCRIBE=$(git describe --tags --always --dirty 2>/dev/null || echo unknown)
-DESCRIBE=${DESCRIBE//\'/}
 
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)/clipdown"
@@ -46,7 +45,6 @@ pb "Add :CFBundleExecutable string clipdown"
 pb "Add :CFBundlePackageType string APPL"
 pb "Add :CFBundleShortVersionString string $VERSION"
 pb "Add :CFBundleVersion string $BUILD"
-pb "Add :ClipDownGitDescription string '$DESCRIBE'"
 pb "Add :LSMinimumSystemVersion string 15.0"
 pb "Add :LSUIElement bool true"
 pb "Add :LSApplicationCategoryType string public.app-category.developer-tools"
@@ -54,6 +52,8 @@ if [ "${HAS_ICON:-}" ]; then
     pb "Add :CFBundleIconName string ClipDown"
     pb "Add :CFBundleIconFile string ClipDown"
 fi
+# plutil takes the value as its own argument, so any tag name round-trips.
+plutil -insert ClipDownGitDescription -string "$DESCRIBE" "$PLIST"
 plutil -lint "$PLIST" >/dev/null
 
 # Use a Developer ID when there is one, so macOS keeps the clipboard and
