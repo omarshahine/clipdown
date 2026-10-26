@@ -4,10 +4,11 @@ ClipDown ships as a signed, notarized app through GitHub Releases, updates itsel
 
 ## Publish a release
 
-1. Confirm the working tree is clean, `main` is pushed, and CI passes.
-2. Tag and push: `git tag -a v1.2.3 -m "ClipDown 1.2.3" && git push origin v1.2.3`.
-3. Watch the **Release** workflow. It tests, signs with the OmarKnows LLC Developer ID, notarizes and staples, validates the app, publishes the GitHub release with a signed `appcast.xml`, checks that the previous release can upgrade to this one, and updates the Homebrew cask.
-4. Check it: `brew update && brew upgrade --cask clipdown` (or `brew install --cask omarshahine/tap/clipdown`), then `spctl --assess --type execute --verbose=2 /Applications/ClipDown.app`.
+1. Add a `## 1.2.3` section to `CHANGELOG.md` saying what changed for people using ClipDown, and merge it. The workflow refuses a tag without one. The GitHub release gets that section; Sparkle's update window gets it plus the two versions before it (`scripts/release-notes.sh 1.2.3 --recent 3` previews it), so anyone who skipped a release still sees what changed.
+2. Confirm the working tree is clean, `main` is pushed, and CI passes.
+3. Tag and push: `git tag -a v1.2.3 -m "ClipDown 1.2.3" && git push origin v1.2.3`.
+4. Watch the **Release** workflow. It tests, signs with the OmarKnows LLC Developer ID, notarizes and staples, validates the app, publishes the GitHub release with a signed `appcast.xml`, checks that the previous release can upgrade to this one, and updates the Homebrew cask.
+5. Check it: `brew update && brew upgrade --cask clipdown` (or `brew install --cask omarshahine/tap/clipdown`), then `spctl --assess --type execute --verbose=2 /Applications/ClipDown.app`.
 
 The app reads its feed from `https://github.com/omarshahine/clipdown/releases/latest/download/appcast.xml`. The cask declares `auto_updates true`, so Homebrew doesn't compete with Sparkle.
 

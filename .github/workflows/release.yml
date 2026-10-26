@@ -42,6 +42,8 @@ jobs:
           echo "DIRECT_ARCHIVE_PATH=$GITHUB_WORKSPACE/release/ClipDown.zip" >> "$GITHUB_ENV"
           echo "APPCAST_PATH=$GITHUB_WORKSPACE/release/appcast.xml" >> "$GITHUB_ENV"
           echo "TAP_TAG=clipdown-v$VERSION" >> "$GITHUB_ENV"
+          # Fail before building when CHANGELOG.md has no notes for this version.
+          ./scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/release-notes.md"
 
       - name: Test
         run: swift test
@@ -142,13 +144,10 @@ jobs:
           set -euo pipefail
           : "${SPARKLE_PRIVATE_KEY:?Missing SPARKLE_PRIVATE_KEY}"
 
+          # Sparkle shows only the newest release's notes, so they cover the
+          # last few versions for anyone who skipped one.
           RELEASE_NOTES_PATH="$GITHUB_WORKSPACE/release/ClipDown-$VERSION.md"
-          gh api \
-            --method POST \
-            "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" \
-            -f target_commitish="$GITHUB_SHA" \
-            --jq '.body' > "$RELEASE_NOTES_PATH"
+          ./scripts/release-notes.sh "$VERSION" --recent 3 > "$RELEASE_NOTES_PATH"
 
           printf '%s' "$SPARKLE_PRIVATE_KEY" | \
             .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
@@ -181,7 +180,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" "$ARCHIVE_PATH" "$DIRECT_ARCHIVE_PATH" "$APPCAST_PATH" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
-              --generate-notes \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
               --title "ClipDown $VERSION"
           fi
 
