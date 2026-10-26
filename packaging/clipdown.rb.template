@@ -5,8 +5,7 @@ cask "clipdown" do
   version "__VERSION__"
   sha256 "__SHA256__"
 
-  url "https://github.com/omarshahine/homebrew-tap/releases/download/clipdown-v#{version}/ClipDown-#{version}.zip",
-      verified: "github.com/omarshahine/homebrew-tap/"
+  url "https://github.com/omarshahine/homebrew-tap/releases/download/clipdown-v#{version}/ClipDown-#{version}.zip"
   name "ClipDown"
   desc "Keeps terminal text formatted when you paste it into Teams, Slack and more"
   homepage "https://omarknows.app/clipdown/"
