@@ -2,6 +2,10 @@
 
 What changed in each ClipDown release, newest first. The release workflow publishes these notes, so every version needs a section before it's tagged.
 
+## 1.2.1
+
+- Fixed: ClipDown could stop opening at login after a copy built from source had been run once. The login item pointed at that copy, which was gone by the next login. Only a copy in Applications now adds itself to your login items.
+
 ## 1.2.0
 
 - Settings has standard Mac toolbar tabs, and the window is titled after the tab you're on. It reopens on the tab you used last.
