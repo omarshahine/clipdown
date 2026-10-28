@@ -138,6 +138,13 @@ enum LoginItem {
     static var status: SMAppService.Status { SMAppService.mainApp.status }
     static var isEnabled: Bool { status == .enabled }
 
+    /// True when running from /Applications or ~/Applications, not a build folder.
+    static var isInstalledCopy: Bool {
+        let parent = Bundle.main.bundleURL.deletingLastPathComponent().standardizedFileURL.path
+        return parent == "/Applications"
+            || parent == FileManager.default.homeDirectoryForCurrentUser.appending(path: "Applications").standardizedFileURL.path
+    }
+
     /// Returns nil on success, or what went wrong for display.
     @discardableResult
     static func set(_ enabled: Bool) -> String? {
@@ -159,7 +166,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let defaults = UserDefaults.standard
             if !defaults.bool(forKey: "launchedBefore") {
                 defaults.set(true, forKey: "launchedBefore")
-                LoginItem.set(true)
+                // The login item is keyed by bundle id, so a build run from a
+                // staging folder would point it at a copy that soon disappears.
+                if LoginItem.isInstalledCopy { LoginItem.set(true) }
                 AppModel.shared.showSettings()
             }
         }
