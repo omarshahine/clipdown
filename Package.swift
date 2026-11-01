@@ -9,7 +9,7 @@ let package = Package(
     ],
     dependencies: [
         // Same pinned version as Spotmoji.
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         .target(name: "ClipDownCore"),
